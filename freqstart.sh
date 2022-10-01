@@ -459,12 +459,15 @@ _fsDockerProjectCompose_() {
       
         if [[ "${FS_OPTS_AUTO}" -eq 1 ]]; then
           if [[ ! "${_containerName}" =~ $FS_REGEX ]]; then
-            if [[ "$(_fsCaseConfirmation_ "Start container: ${_containerName}")" -eq 1 ]]; then
-              if [[ "${_containerActive}" -eq 1 ]]; then
+          
+            if [[ "${_containerActive}" -eq 1 ]]; then
+              if [[ "$(_fsCaseConfirmation_ "Start container: ${_containerName}")" -eq 1 ]]; then
                 _fsDockerRemove_ "${_containerName}"
+                _fsMsg_ 'Skipping...'
+                continue
               fi
-              _fsMsg_ 'Skipping...'
-              continue
+            else
+              _fsMsg_ "Container already active: ${_containerName}"
             fi
           else
             _fsMsg_ "Start container: ${_containerName}"
@@ -594,6 +597,7 @@ _fsDockerProjectValidate_() {
   
   # update every 12 hours and 3 minutes
   _fsCrontab_ "3 */12 * * *" "${FS_AUTO}"
+  
   # clear orphaned networks
   yes $'y' | docker network prune > /dev/null || true
 }
@@ -654,18 +658,17 @@ _fsDockerStrategy_() {
   fi
   
   if [[ -f "${FS_STRATEGIES}" ]]; then
-    
     while read -r; do
     _strategyUrls+=( "$REPLY" )
-    done < <(jq -r ".${_strategyName}[]?"' // empty' "${FS_STRATEGIES}")
+    done < <(jq -r ".${_strategyName}[]"' // empty' "${FS_STRATEGIES}")
     
-      # add custom strategies from file
+    # add custom strategies from file
     if [[ -f "${FS_STRATEGIES_CUSTOM}" ]]; then
       while read -r; do
       _strategyUrls+=( "$REPLY" )
-      done < <(jq -r ".${_strategyName}[]?"' // empty' "${FS_STRATEGIES_CUSTOM}")
+      done < <(jq -r ".${_strategyName}[]"' // empty' "${FS_STRATEGIES_CUSTOM}")
     fi
-    
+        
     if (( ${#_strategyUrls[@]} )); then
       while read -r; do
       _strategyUrlsDeduped+=( "$REPLY" )
@@ -1517,8 +1520,6 @@ FS_OPTS_AUTO=1
 
 _fsOptions_ "${@}"
 
-exit 1
-
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsDockerReset_
 else
@@ -1526,7 +1527,7 @@ else
   _fsSetupUser_
   _fsSetupRootless_
   _setupFreqtrade_
-  _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"  
+  _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"
   _setupBinanceProxy_
   _setupKucoinProxy_
   _fsDockerProject_
