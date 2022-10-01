@@ -1,4 +1,4 @@
-{
+  {
   "Cenderawasih_3": [
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/strategies/Cenderawasih/Cenderawasih_3.py"
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config.json"
@@ -11,7 +11,8 @@
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config.json"
   ],
   "DoesNothingStrategy": [
-    "https://raw.githubusercontent.com/freqtrade/freqtrade-strategies/master/user_data/strategies/berlinguyinca/DoesNothingStrategy.py"
+    "https://raw.githubusercontent.com/freqstart/strategies/main/DoesNothingStrategy/DoesNothingStrategy.py"
+    "https://raw.githubusercontent.com/freqstart/strategies/main/DoesNothingStrategy/DoesNothingStrategy.json"
   ],
   "MultiMA_TSL": [
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/strategies/MultiMA_TSL.py",
@@ -20,7 +21,6 @@
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config-backtest-usdt.json",
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config-backtest-busd.json"
   ],
-  
   "MultiMA_TSL5": [
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/strategies/MultiMA_TSL/MultiMA_TSL5.py"
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config.json"
@@ -28,7 +28,12 @@
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config-backtest-usdt.json"
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config-backtest-busd.json"
   ],
-  
+  "NASOSv4": [
+    "https://raw.githubusercontent.com/freqstart/strategies/main/NASOSv4/NASOSv4.py",
+  ],
+  "NASOSv5": [
+    "https://raw.githubusercontent.com/freqstart/strategies/main/NASOSv5/NASOSv5.py",
+  ],
   "NostalgiaForInfinityX": [
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/NostalgiaForInfinityX.py",
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/blacklist-binance.json",
@@ -49,5 +54,5 @@
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-huobi-usdt.json",
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-kucoin-usdt.json",
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-okx-usdt.json"
-  ]
+  ],
 }
