@@ -1,4 +1,4 @@
-  {
+{
   "Cenderawasih_3": [
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/strategies/Cenderawasih/Cenderawasih_3.py",
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/config.json",
@@ -54,5 +54,5 @@
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-huobi-usdt.json",
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-kucoin-usdt.json",
     "https://raw.githubusercontent.com/iterativv/NostalgiaForInfinity/main/configs/pairlist-volume-okx-usdt.json"
-  ],
+  ]
 }
