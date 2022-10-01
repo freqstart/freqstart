@@ -33,14 +33,16 @@ For `Freqtrade` related questions, join the official discord: https://discord.gg
 
 ### Strategies
 
-The following list is in alphabetical order and does not represent any recommendation:
+The following list of implemented strategies is in alphabetical order and does not represent any recommendation:
 
-* Cenderawasih_3 (Author: stash86, https://github.com/stash86/MultiMA_TSL/)
-* Cenderawasih_3_kucoin (Author: stash86, https://github.com/stash86/MultiMA_TSL/)
-* DoesNothingStrategy (Author: Gert Wohlgemuth)
-* MultiMA_TSL (Author: stash86, https://github.com/stash86/MultiMA_TSL/)
-* MultiMA_TSL5 (Author: stash86, https://github.com/stash86/MultiMA_TSL/)
-* NostalgiaForInfinityX (Author: iterativ, https://github.com/iterativv/NostalgiaForInfinity)
+* `Cenderawasih_3` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
+* `Cenderawasih_3_kucoin` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
+* `DoesNothingStrategy` (Author: Gert Wohlgemuth)
+* `MultiMA_TSL` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
+* `MultiMA_TSL5` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
+* `NASOSv4` (Author: Rallipanos, pluxury)
+* `NASOSv5` (Author: Rallipanos, pluxury)
+* `NostalgiaForInfinityX` (Author: iterativ, Source: https://github.com/iterativv/NostalgiaForInfinity)
 
 Help expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart_strategies.json)
 
