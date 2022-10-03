@@ -22,7 +22,7 @@ set -o nounset
 set -o pipefail
 
 readonly FS_NAME="freqstart"
-readonly FS_VERSION='v3.0.0'
+readonly FS_VERSION='v3.0.1'
 readonly FS_TMP="/tmp/${FS_NAME}"
 readonly FS_SYMLINK="/usr/local/bin/${FS_NAME}"
 readonly FS_FILE="${FS_NAME}.sh"
@@ -646,12 +646,13 @@ _fsDockerStrategy_() {
   local _strategyUrlsDeduped=()
   local _strategyUrl=''
   local _strategyPath=''
-  local _strategyPathTmp=''
   local _strategiesTmp="${FS_TMP}/${FS_HASH}_${FS_STRATEGIES##*/}"
+  local _configDownload=''
+  local _strategyDownload=''
   
   # create the strategy config
-  _fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}"
-
+  _configDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
+  
   # update strategie file if necessary
   if ! cmp --silent "${_strategiesTmp}" "${FS_STRATEGIES}"; then
     cp -a "${_strategiesTmp}" "${FS_STRATEGIES}"
@@ -683,21 +684,8 @@ _fsDockerStrategy_() {
       for _strategyUrl in "${_strategyUrlsDeduped[@]}"; do
         _strategyFile="${_strategyUrl##*/}"
         _strategyPath="${_strategyDir}/${_strategyFile}"
-        _strategyPathTmp="${_strategyTmp}/${_strategyFile}"
         
-        _fsDownload_ "${_strategyUrl}" "${_strategyPathTmp}"
-        
-        # check if strategy file already exist
-        if [[ -f "${_strategyPath}" ]]; then
-          # only update if temp file is different and not empty
-          if [ -s _strategyPathTmp ]; then
-            if ! cmp --silent "${_strategyPathTmp}" "${_strategyPath}"; then
-              sudo cp -a "${_strategyPathTmp}" "${_strategyPath}"
-            fi
-          fi
-        else
-          sudo cp -a "${_strategyPathTmp}" "${_strategyPath}"
-        fi
+        _strategyDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
       done
     else
       _fsMsg_ "[WARNING] Strategy not implemented: ${_strategyName}"
@@ -714,21 +702,21 @@ _fsDockerProject_() {
   if (( ! ${#_projects[@]} )); then
     readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 ! -name "${FS_NAME}*" -name "*.yml" -print0)
   fi
-    
+  
   if (( ${#_projects[@]} )); then
     if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then
       for _project in "${_projects[@]}"; do
-          _fsDockerProjectQuit_ "${_project}"
+        _fsDockerProjectQuit_ "${_project}"
       done
     else
       for _project in "${_projects[@]}"; do
-          _fsDockerProjectCompose_ "${_project}"
+        _fsDockerProjectCompose_ "${_project}"
       done
       
       _fsCdown_ 30 "for any errors..."
       
       for _project in "${_projects[@]}"; do
-          _fsDockerProjectValidate_ "${_project}"
+        _fsDockerProjectValidate_ "${_project}"
       done
     fi
   else
@@ -750,7 +738,19 @@ _fsDockerReset_() {
 # SETUP
 #
 
-_fsSetupUser_() {
+_fsUpdate_() {
+  local _url="https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart.sh"
+  local _download=''
+  
+  _download="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
+  
+  if [[ "${_download}" -eq 1 ]]; then
+    _fsMsg_ "[WARNING] Script is updated to newest version!"
+    exit 0
+  fi
+}
+
+_fsUser_() {
   local	_user=''
   local	_userId=''
   local	_userSudoer=''
@@ -788,7 +788,7 @@ _fsSetupUser_() {
             fi
           else
             _fsMsg_ "User \"${_userTmp}\" does not exist."
-
+            
             if [[ "$(_fsCaseConfirmation_ "Create user \"${_userTmp}\" now?")" -eq 0 ]]; then
               sudo adduser --gecos '' "${_userTmp}"
               break
@@ -848,7 +848,7 @@ _fsSetupUser_() {
   fi
 }
 
-_fsSetupPrerequisites_() {
+_fsPrerequisites_() {
   local _upgradesConf="/etc/apt/apt.conf.d/50unattended-upgrades"
   
   # install and validate all required packages
@@ -873,12 +873,13 @@ _fsSetupPrerequisites_() {
   fi
 }
 
-_fsSetupRootless_() {
+_fsRootless_() {
   local	_user=''
   local	_userId=''
   local _userBashrc=''
   local _getDocker="${FS_DIR}/get-docker.sh"
   local _getDockerUrl="https://get.docker.com/rootless"
+  local _getDockerDownload=''
   
   _user="$(id -u -n)"
   _userId="$(id -u)"
@@ -890,7 +891,7 @@ _fsSetupRootless_() {
     sudo systemctl disable --now docker.socket docker.service || true
     sudo rm /var/run/docker.sock || true
     
-    _fsDownload_ "${_getDockerUrl}" "${_getDocker}"
+    _getDockerDownload="$(_fsDownload_ "${_getDockerUrl}" "${_getDocker}")"
     sudo chmod +x "${_getDocker}"
     sh "${_getDocker}"
     rm -f "${_getDocker}"
@@ -922,6 +923,7 @@ _setupPkgs_() {
   local _status=''
   local _getDocker="${FS_DIR}/get-docker.sh"
   local _getDockerUrl="https://get.docker.com"
+  local _getDockerDownload=''
   local _error=0
   local _update=0
   
@@ -938,7 +940,8 @@ _setupPkgs_() {
   for _pkg in "${_pkgs[@]}"; do
     if [[ "$(_setupPkgsValidate_ "${_pkg}")" -eq 1 ]]; then
       if [[ "${_pkg}" = 'docker-ce' ]]; then
-        _fsDownload_ "${_getDockerUrl}" "${_getDocker}"
+        _getDockerDownload="$(_fsDownload_ "${_getDockerUrl}" "${_getDocker}")"
+        
         sudo chmod +x "${_getDocker}"
         sh "${_getDocker}"
         rm -f "${_getDocker}"
@@ -975,7 +978,7 @@ _setupPkgsValidate_() {
 
 # FREQTRADE
 # credit: https://github.com/freqtrade/freqtrade
-_setupFreqtrade_() {
+_fsFreqtrade_() {
   local _yml="${FS_DIR}/${FS_NAME}_freqtrade.yml"
   
   if [[ ! -d "${FS_DIR_USER_DATA}" ]]; then
@@ -998,7 +1001,7 @@ _setupFreqtrade_() {
 }
 
 # BINANCE-PROXY; credit: https://github.com/nightshift2k/binance-proxy
-_setupBinanceProxy_() {  
+_fsProxyBinance_() {  
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 1 ]]; then
     # binance proxy json file; note: sudo because of freqtrade docker user
     _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_BINANCE}.json" \
@@ -1060,7 +1063,7 @@ _setupBinanceProxy_() {
 }
 
 # KUCOIN-PROXY; credit: https://github.com/mikekonan/exchange-proxy
-_setupKucoinProxy_() {  
+_fsProxyKucoin_() {  
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 1 ]]; then
     # kucoin proxy json file; note: sudo because of freqtrade docker user
     _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_KUCOIN}.json" \
@@ -1202,8 +1205,29 @@ _fsDownload_() {
   
   local _url="${1}"
   local _output="${2}"
+  local _outputTmp="${FS_TMP}/${FS_HASH}_${_output##*/}"
+  
+  curl --connect-timeout 10 -fsSL "${_url}" -o "${_outputTmp}" || true
 
-  curl --connect-timeout 10 -fsSL "${_url}" -o "${_output}" || _fsMsgError_ "Download failed: ${_url}"
+  if [[ ! -s "${_outputTmp}" ]] && [[ -f "${_output}" ]]; then
+    _fsMsg_ "[WARNING] Can not get newer file: ${_url}"
+    echo 0
+  elif [[ -s "${_outputTmp}" ]]; then
+    if [[ -f "${_output}" ]]; then
+      # only update if temp file is different
+      if ! cmp --silent "${_outputTmp}" "${_output}"; then
+        sudo cp -a "${_outputTmp}" "${_output}"
+        echo 1
+      else
+        echo 0
+      fi
+    else
+      sudo cp -a "${_outputTmp}" "${_output}"
+      echo 1
+    fi
+  else
+    _fsMsgError_ "Download failed: ${_url}"
+  fi
 }
 
 _fsRandomHex_() {
@@ -1471,7 +1495,7 @@ _fsOptions_() {
   local -r _args=("${@}")
   local _opts
   
-  _opts="$(getopt --options a,d,q,r --long auto,debug,quit,reset -- "${_args[@]}" 2> /dev/null)" || {
+  _opts="$(getopt --options a,d,q,r,u --long auto,debug,quit,reset,update -- "${_args[@]}" 2> /dev/null)" || {
     _fsMsgError_ "Unkown or missing argument."
   }
   
@@ -1494,6 +1518,10 @@ _fsOptions_() {
         FS_OPTS_RESET=0
         break
         ;;
+      --update|-u)
+        FS_OPTS_UPDATE=0
+        break
+        ;;
       --)
         shift
         break
@@ -1513,23 +1541,26 @@ _fsLogo_
 _fsScriptlock_
 
 FS_ARCHITECTURE="$(_fsArchitecture_)"
+FS_OPTS_AUTO=1
+FS_OPTS_DEBUG=1
 FS_OPTS_QUIT=1
 FS_OPTS_RESET=1
-FS_OPTS_DEBUG=1
-FS_OPTS_AUTO=1
+FS_OPTS_UPDATE=1
 
 _fsOptions_ "${@}"
 
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsDockerReset_
+elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
+  _fsUpdate_
 else
-  _fsSetupPrerequisites_
-  _fsSetupUser_
-  _fsSetupRootless_
-  _setupFreqtrade_
+  _fsPrerequisites_
+  _fsUser_
+  _fsRootless_
+  _fsFreqtrade_
   _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"
-  _setupBinanceProxy_
-  _setupKucoinProxy_
+  _fsProxyBinance_
+  _fsProxyKucoin_
   _fsDockerProject_
 fi
 
