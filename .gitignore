@@ -1,2 +1,9 @@
 
 *.yml
+*.bak
+*.sqlite
+*.sqlite-wal
+*.json
+!freqstart_strategies.json
+*.sqlite-shm
+*.py
