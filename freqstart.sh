@@ -596,7 +596,7 @@ _fsDockerProjectValidate_() {
   done
   
   # update every 12 hours and 3 minutes
-  _fsCrontab_ "3 */12 * * *" "${FS_AUTO}"
+  _fsCrontab_ "3 0 * * *" "${FS_AUTO}"
   
   # clear orphaned networks
   yes $'y' | docker network prune > /dev/null || true
