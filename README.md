@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.0
+# FREQSTART v3.0.1
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -63,7 +63,8 @@ Packages: curl, jq, docker-ce, docker-compose, docker-ce-rootless-extras, system
 
 ### Recommended VPS
 
-Vultr (Intel High Frequency / Tokyo / Ubuntu): [www.vultr.com](https://www.vultr.com/?ref=9122650-8H)
+HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
+Vultr (Intel High Frequency / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
 
 ### Setup
 
