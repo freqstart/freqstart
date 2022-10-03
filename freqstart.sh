@@ -456,46 +456,29 @@ _fsDockerProjectCompose_() {
     for _projectContainer in "${_projectContainers[@]}"; do
       _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
       _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
+        
+      # create docker network; credit: https://stackoverflow.com/a/59878917
+      docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
       
-        if [[ "${FS_OPTS_AUTO}" -eq 1 ]]; then
-          if [[ ! "${_containerName}" =~ $FS_REGEX ]]; then
-          
-            if [[ "${_containerActive}" -eq 1 ]]; then
-              if [[ "$(_fsCaseConfirmation_ "Start container: ${_containerName}")" -eq 1 ]]; then
-                _fsDockerRemove_ "${_containerName}"
-                _fsMsg_ 'Skipping...'
-                continue
-              fi
-            else
-              _fsMsg_ "Container already active: ${_containerName}"
-            fi
-          else
-            _fsMsg_ "Start container: ${_containerName}"
-          fi
-        fi
-        
-        # create docker network; credit: https://stackoverflow.com/a/59878917
-        docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
-        
-        # connect container to docker network
-        if [[ "${_containerName}" = "${FS_PROXY_BINANCE}" ]]; then
-          docker network connect --ip "${FS_PROXY_BINANCE_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
-        elif [[ "${_containerName}" = "${FS_PROXY_KUCOIN}" ]]; then
-          docker network connect --ip "${FS_PROXY_KUCOIN_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
-        else
-          docker network connect "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
-        fi
-        
-        # set restart to no to filter faulty containers
-        docker update --restart=no "${_containerName}" > /dev/null
-        
-        # get container command
-        _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_projectContainer}" \
-        | sed "s,\[, ,g" \
-        | sed "s,\], ,g" \
-        | sed "s,\",,g" \
-        | sed "s,\=, ,g" \
-        | sed "s,\/freqtrade\/,,g")"
+      # connect container to docker network
+      if [[ "${_containerName}" = "${FS_PROXY_BINANCE}" ]]; then
+        docker network connect --ip "${FS_PROXY_BINANCE_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+      elif [[ "${_containerName}" = "${FS_PROXY_KUCOIN}" ]]; then
+        docker network connect --ip "${FS_PROXY_KUCOIN_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+      else
+        docker network connect "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+      fi
+      
+      # set restart to no to filter faulty containers
+      docker update --restart=no "${_containerName}" > /dev/null
+      
+      # get container command
+      _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_projectContainer}" \
+      | sed "s,\[, ,g" \
+      | sed "s,\], ,g" \
+      | sed "s,\",,g" \
+      | sed "s,\=, ,g" \
+      | sed "s,\/freqtrade\/,,g")"
         
       if [[ -n "${_containerCmd}" ]]; then
         # remove logfile
@@ -699,7 +682,15 @@ _fsDockerProject_() {
       done
     else
       for _project in "${_projects[@]}"; do
-        _fsDockerProjectCompose_ "${_project}"
+        if [[ "${FS_OPTS_AUTO}" -eq 1 ]] || [[ ! "${_project}" =~ $FS_REGEX ]]; then
+          if [[ "$(_fsCaseConfirmation_ "Compose project: ${_project##*/}")" -eq 1 ]]; then
+            _fsMsg_ 'Skipping...'
+          else
+            _fsDockerProjectCompose_ "${_project}"
+          fi
+        else
+          _fsDockerProjectCompose_ "${_project}"
+        fi
       done
       
       _fsCdown_ 30 "for any errors..."
