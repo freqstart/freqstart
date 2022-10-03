@@ -745,8 +745,10 @@ _fsUpdate_() {
   _download="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
   
   if [[ "${_download}" -eq 1 ]]; then
-    _fsMsg_ "[WARNING] Script is updated to newest version!"
+    _fsMsg_ "[SUCCESS] Script is updated to newest version!"
     exit 0
+  else
+    _fsMsg_ "Script is already latest version (stable)."
   fi
 }
 
@@ -823,7 +825,7 @@ _fsUser_() {
       fi
       
       _fsMsg_ "#"
-      _fsMsg_ "# Continue setup with: ${_userTmpDir}/${FS_FILE} --setup"
+      _fsMsg_ "# Continue setup with: ${_userTmpDir}/${FS_FILE}"
       _fsMsg_ "#"
       
       # remove scriptlock and symlink
