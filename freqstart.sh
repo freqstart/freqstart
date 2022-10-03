@@ -442,9 +442,9 @@ _fsDockerProjectCompose_() {
   _projectImages="$(_fsDockerProjectImages_ "${_project}")"
   
   [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
-  [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
   [[ "${_projectStrategies}" -eq 1 ]] && _error=$((_error+1))
-  
+  [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
+
   if [[ "${_error}" -eq 0 ]]; then
     # shellcheck disable=SC2015,SC2086 # ignore shellcheck
     docker compose -f ${_project} -p ${_projectName} up --no-start --no-recreate ${_projectService} > /dev/null 2> /dev/null || true
@@ -646,17 +646,11 @@ _fsDockerStrategy_() {
   local _strategyUrlsDeduped=()
   local _strategyUrl=''
   local _strategyPath=''
-  local _strategiesTmp="${FS_TMP}/${FS_HASH}_${FS_STRATEGIES##*/}"
-  local _configDownload=''
   local _strategyDownload=''
-  
+  local _configDownload=''
+
   # create the strategy config
-  _configDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
-  
-  # update strategie file if necessary
-  if ! cmp --silent "${_strategiesTmp}" "${FS_STRATEGIES}"; then
-    cp -a "${_strategiesTmp}" "${FS_STRATEGIES}"
-  fi
+  _configDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES}")"
   
   if [[ -f "${FS_STRATEGIES}" ]]; then
     while read -r; do
@@ -685,7 +679,7 @@ _fsDockerStrategy_() {
         _strategyFile="${_strategyUrl##*/}"
         _strategyPath="${_strategyDir}/${_strategyFile}"
         
-        _strategyDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
+        _strategyDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategyPath}")"
       done
     else
       _fsMsg_ "[WARNING] Strategy not implemented: ${_strategyName}"
