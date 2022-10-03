@@ -740,6 +740,8 @@ _fsUpdate_() {
   
   if [[ "${_download}" -eq 1 ]]; then
     _fsMsg_ "[SUCCESS] Script is updated to newest version!"
+    sudo chmod +x "${FS_PATH}"
+    
     exit 0
   else
     _fsMsg_ "Script is already latest version (stable)."
