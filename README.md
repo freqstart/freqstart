@@ -146,6 +146,10 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 
 ### Changelog
 
+`v3.0.1`
+* Improved download routine.
+* Implemented script update option.
+
 `v3.0.0`
 * Granted the permission from original author to continue further development.
 
