@@ -66,6 +66,7 @@ Packages: curl, jq, docker-ce, docker-compose, docker-ce-rootless-extras, system
 If you take crypto bot trading seriously never use a VPS with only one core. Freqtrade may not utilize multithread but with CPU-heavy strategies like NFIX, your VPS would be locked up nearly 100% every time. Also, it is recommended to add 1 CPU core per bot. So if you run 3 different strategies, you should have at least 4 CPU cores to have some buffer for other system tasks. Additionally install bashtop ($ sudo apt install bashtop), set the timing to 30.000ms, and look how long it takes your VPS to finish the calculation of a new trading candle from 100% to under 20% within 10 bars (= 5 minutes) per core. A good benchmark for NFIX would be 2 minutes, which are 4 bars. Anything higher or permanent above 90% and you risk losing money or never getting any trading entries. Don't be cheap on your way to the moon or you probably end up in goblin town anyways.
 
 HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
+
 Vultr (Intel High Frequency / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
 
 ### Setup
