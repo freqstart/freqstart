@@ -639,8 +639,6 @@ _fsDockerStrategy_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _strategyName="${1}"
-  local _strategyFile=''
-  local _strategyTmp="${FS_TMP}/${FS_HASH}_${_strategyName}"
   local _strategyDir="${FS_DIR_USER_DATA}/strategies/${_strategyName}"
   local _strategyUrls=()
   local _strategyUrlsDeduped=()
@@ -671,15 +669,12 @@ _fsDockerStrategy_() {
     fi
     
     if (( ${#_strategyUrlsDeduped[@]} )); then
-      mkdir -p "${_strategyTmp}"
       # note: sudo because of freqtrade docker user
       sudo mkdir -p "${_strategyDir}"
       
       for _strategyUrl in "${_strategyUrlsDeduped[@]}"; do
-        _strategyFile="${_strategyUrl##*/}"
-        _strategyPath="${_strategyDir}/${_strategyFile}"
-        
-        _strategyDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategyPath}")"
+        _strategyPath="${_strategyDir}/${_strategyUrl##*/}"
+        _strategyDownload="$(_fsDownload_ "${_strategyUrl}" "${_strategyPath}")"
       done
     else
       _fsMsg_ "[WARNING] Strategy not implemented: ${_strategyName}"
@@ -741,7 +736,6 @@ _fsUpdate_() {
   if [[ "${_download}" -eq 1 ]]; then
     _fsMsg_ "[SUCCESS] Script is updated to newest version!"
     sudo chmod +x "${FS_PATH}"
-    
     exit 0
   else
     _fsMsg_ "Script is already latest version (stable)."
