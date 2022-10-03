@@ -742,7 +742,7 @@ _fsUpdate_() {
   local _url="https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart.sh"
   local _download=''
   
-  _download="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${_strategiesTmp}")"
+  _download="$(_fsDownload_ "${_url}" "${FS_PATH}")"
   
   if [[ "${_download}" -eq 1 ]]; then
     _fsMsg_ "[SUCCESS] Script is updated to newest version!"
