@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.1
+# FREQSTART v3.0.2
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -42,6 +42,7 @@ The following list of implemented strategies is in alphabetical order and does n
 * `MultiMA_TSL5` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
 * `NASOSv4` (Author: Rallipanos, pluxury)
 * `NASOSv5` (Author: Rallipanos, pluxury)
+* `NostalgiaForInfinityNext_7_13_0` (Author: iterativ, Source: https://github.com/iterativv/NostalgiaForInfinity)
 * `NostalgiaForInfinityX` (Author: iterativ, Source: https://github.com/iterativv/NostalgiaForInfinity)
 
 Help expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart_strategies.json)
@@ -88,24 +89,30 @@ Vultr (Intel High Frequency / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr
    ./freqstart.sh
    ```
    
-### Start `Freqtrade` docker compose projects
+### Start `Freqtrade` docker projects
 
    ```sh
    freqstart
    ```
 
-### Stop `Freqtrade` docker compose projects
+### Stop `Freqtrade` docker projects
 
    ```sh
    freqstart --quit
    ```
 
-### Reset to stop and remove all docker images, containers and networks
+### Reset all `Freqtrade` docker projects incl. containers and networks
 
    ```sh
    freqstart --reset
    ```
 
+### Update `Freqtrade` script from git stable repository
+
+   ```sh
+   freqstart --update
+   ```
+   
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- EXAMPLE PROJECT -->
@@ -149,6 +156,9 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.2`
+* Improved project routine to disable auto restart for non-started or stopped projects.
 
 `v3.0.1`
 * Improved download routine.
