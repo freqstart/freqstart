@@ -22,7 +22,7 @@ set -o nounset
 set -o pipefail
 
 readonly FS_NAME="freqstart"
-readonly FS_VERSION='v3.0.1'
+readonly FS_VERSION='v3.0.2'
 readonly FS_TMP="/tmp/${FS_NAME}"
 readonly FS_SYMLINK="/usr/local/bin/${FS_NAME}"
 readonly FS_FILE="${FS_NAME}.sh"
@@ -573,8 +573,8 @@ _fsDockerProjectValidate_() {
         docker update --restart=unless-stopped "${_containerName}" > /dev/null
         _fsMsg_ '[SUCCESS] Container is active: '"${_containerName}"
       else
-        _fsDockerRemove_ "${_containerName}"
         _fsMsg_ '[WARNING] Container is not active: '"${_containerName}"
+        _fsDockerRemove_ "${_containerName}"
       fi
   done
   
@@ -594,7 +594,6 @@ _fsDockerProjectQuit_() {
   local _projectName="${_projectFileName//\-/\_}"
   local _projectContainers=()
   local _projectContainer=''
-  local _containerActive=''
   local _containerName=''
   
   while read -r; do
@@ -603,17 +602,13 @@ _fsDockerProjectQuit_() {
 
   for _projectContainer in "${_projectContainers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
-    _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
     
-    if [[ "$(_fsCaseConfirmation_ "Quit container: ${_containerName}")" -eq 0 ]]; then
-      _fsDockerRemove_ "${_containerName}"
-      if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 1 ]]; then
-        _fsMsg_ "[SUCCESS] Container is removed: ${_containerName}"
-      else
-        _fsMsg_ "[WARNING] Container not removed: ${_containerName}"
-      fi
+    _fsDockerRemove_ "${_containerName}"
+    
+    if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 1 ]]; then
+      _fsMsg_ "[SUCCESS] Container is removed: ${_containerName}"
     else
-      _fsMsg_ 'Skipping...'
+      _fsMsg_ "[WARNING] Container not removed: ${_containerName}"
     fi
   done
 }
@@ -670,37 +665,64 @@ _fsDockerStrategy_() {
 _fsDockerProject_() {
   local _projects=("${@}")
   local _project=''
-  
+  local _projectDisabled='.disabled'
+  local _projectsValidate=()
+
+  # find all projects incl. disabled in script root
   if (( ! ${#_projects[@]} )); then
-    readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 ! -name "${FS_NAME}*" -name "*.yml" -print0)
+    readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 ! -name "${FS_NAME}*" \( -name "*.yml" -o -name "*.yml${_projectDisabled}" \) -print0)
   fi
   
   if (( ${#_projects[@]} )); then
     if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then
       for _project in "${_projects[@]}"; do
-        _fsDockerProjectQuit_ "${_project}"
+        if [[ ! "${_project}" =~ $_projectDisabled ]]; then
+          if [[ "$(_fsCaseConfirmation_ "Quit project: ${_project##*/}")" -eq 1 ]]; then
+            _fsMsg_ 'Skipping...'
+          else
+            _fsDockerProjectQuit_ "${_project}"
+            # rename project to disable auto restart
+            sudo mv -f "${_project}" "${_project}${_projectDisabled}"
+          fi
+        fi
       done
     else
       for _project in "${_projects[@]}"; do
         if [[ "${FS_OPTS_AUTO}" -eq 1 ]] || [[ ! "${_project}" =~ $FS_REGEX ]]; then
           if [[ "$(_fsCaseConfirmation_ "Compose project: ${_project##*/}")" -eq 1 ]]; then
+            # rename project to disable auto restart
+            sudo mv -f "${_project}" "${_project}${_projectDisabled}"
             _fsMsg_ 'Skipping...'
           else
+            # rename project to enable auto restart
+            if [[ "${_project}" =~ $_projectDisabled ]]; then
+              sudo mv -f "${_project}" "${_project%.*}"
+              _project="${_project%.*}"
+            fi
+            
             _fsDockerProjectCompose_ "${_project}"
+            _projectsValidate+=("${_project}")
           fi
-        else
+        # exclude disabled projects from auto restart
+        elif [[ ! "${_project}" =~ $_projectDisabled ]]; then
           _fsDockerProjectCompose_ "${_project}"
+          _projectsValidate+=("${_project}")
         fi
       done
       
-      _fsCdown_ 30 "for any errors..."
-      
-      for _project in "${_projects[@]}"; do
-        _fsDockerProjectValidate_ "${_project}"
-      done
+      if (( ${#_projectsValidate[@]} )); then
+        # countdown if project errors occur
+        _fsCdown_ 30 "for any errors..."
+        
+        for _project in "${_projectsValidate[@]}"; do
+          _fsDockerProjectValidate_ "${_project}"
+        done
+      else
+        _fsMsg_ "No projects to validate."
+      fi
     fi
   else
-    _fsMsg_ "[WARNING] No docker project files found."
+    _fsMsg_ "No projects found."
   fi
 }
 
