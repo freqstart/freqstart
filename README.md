@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.2
+# FREQSTART v3.0.3
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -68,7 +68,7 @@ If you take crypto bot trading seriously never use a VPS with only one core. Fre
 
 HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
 
-Vultr (Intel High Frequency / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
+Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
 
 ### Setup
 
@@ -156,6 +156,10 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.3`
+* Auto update now only adds projects to crontab when every container inside has been sucessfully validated.
+* Update changed to once a day. Reset crontab ($ crontab -r) and run script again.
 
 `v3.0.2`
 * Improved project routine to disable auto restart for non-started or stopped projects.
