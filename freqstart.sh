@@ -22,7 +22,7 @@ set -o nounset
 set -o pipefail
 
 readonly FS_NAME="freqstart"
-readonly FS_VERSION='v3.0.2'
+readonly FS_VERSION='v3.0.3'
 readonly FS_TMP="/tmp/${FS_NAME}"
 readonly FS_SYMLINK="/usr/local/bin/${FS_NAME}"
 readonly FS_FILE="${FS_NAME}.sh"
@@ -31,7 +31,10 @@ FS_DIR="$(dirname "$(readlink --canonicalize-existing "${0}" 2> /dev/null)")"
 readonly FS_DIR
 readonly FS_PATH="${FS_DIR}/${FS_FILE}"
 readonly FS_DIR_USER_DATA="${FS_DIR}/user_data"
-readonly FS_AUTO="${FS_PATH} --auto"
+
+readonly FS_AUTO="3 0 * * * ${FS_PATH} --auto"
+FS_AUTO_ESC="$(sed 's/[\*\.\-\/]/\\&/g' <<< "$FS_AUTO")"
+readonly FS_AUTO_ESC
 
 readonly FS_NETWORK="${FS_NAME}_network"
 readonly FS_NETWORK_SUBNET='172.35.0.0/16'
@@ -250,7 +253,9 @@ _fsDockerRemove_() {
     docker rm -f "${_dockerName}" > /dev/null
     
     if [[ "$(_fsDockerContainerPs_ "${_dockerName}" "all")" -eq 0 ]]; then
-      _fsMsgError_ "Cannot remove container: ${_dockerName}"
+      _fsMsg_ "[WARNING] Cannot remove container: ${_dockerName}"
+    else
+      _fsMsg_ "Container removed: ${_dockerName}"
     fi
   fi
 }
@@ -259,14 +264,13 @@ _fsDockerProjectImages_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _ymlPath="${1}"
-  local _ymlImages=''
+  local _ymlImages=()
   local _ymlImagesDeduped=()
   local _ymlImage=''
   local _dockerImage=''
   local _error=0
   
   # credit: https://stackoverflow.com/a/39612060
-  _ymlImages=()
   while read -r; do
     _ymlImages+=( "$REPLY" )
   done < <(grep -vE '^\s+#' "${_ymlPath}" \
@@ -276,7 +280,7 @@ _fsDockerProjectImages_() {
   
   if (( ${#_ymlImages[@]} )); then
     while read -r; do
-    _ymlImagesDeduped+=( "$REPLY" )
+      _ymlImagesDeduped+=( "$REPLY" )
     done < <(_fsArrayDedupe_ "${_ymlImages[@]}")
     
     for _ymlImage in "${_ymlImagesDeduped[@]}"; do
@@ -435,7 +439,10 @@ _fsDockerProjectCompose_() {
   local _containerCmd=''
   local _containerLogfile=''
   
+  local _compose=0
   local _error=0
+  
+  _fsMsgTitle_ "Compose project: ${_projectFile}"
 
   _projectStrategies="$(_fsDockerProjectStrategies_ "${_project}")"
   _projectConfigs="$(_fsDockerProjectConfigs_ "${_project}")"
@@ -444,73 +451,89 @@ _fsDockerProjectCompose_() {
   [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
   [[ "${_projectStrategies}" -eq 1 ]] && _error=$((_error+1))
   [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
-
+  
   if [[ "${_error}" -eq 0 ]]; then
-    # shellcheck disable=SC2015,SC2086 # ignore shellcheck
-    docker compose -f ${_project} -p ${_projectName} up --no-start --no-recreate ${_projectService} > /dev/null 2> /dev/null || true
-
-    while read -r; do
-      _projectContainers+=( "$REPLY" )
-    done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
-
-    for _projectContainer in "${_projectContainers[@]}"; do
-      _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
-      _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
-        
-      # create docker network; credit: https://stackoverflow.com/a/59878917
-      docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
-      
-      # connect container to docker network
-      if [[ "${_containerName}" = "${FS_PROXY_BINANCE}" ]]; then
-        docker network connect --ip "${FS_PROXY_BINANCE_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
-      elif [[ "${_containerName}" = "${FS_PROXY_KUCOIN}" ]]; then
-        docker network connect --ip "${FS_PROXY_KUCOIN_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
-      else
-        docker network connect "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+    while true; do
+      if [[ "${FS_OPTS_AUTO}" -eq 1 ]]; then
+        if [[ "$(_fsCaseConfirmation_ "Start all container...")" -eq 1 ]]; then
+          break
+        fi
       fi
       
-      # set restart to no to filter faulty containers
-      docker update --restart=no "${_containerName}" > /dev/null
-      
-      # get container command
-      _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_projectContainer}" \
-      | sed "s,\[, ,g" \
-      | sed "s,\], ,g" \
-      | sed "s,\",,g" \
-      | sed "s,\=, ,g" \
-      | sed "s,\/freqtrade\/,,g")"
+      # shellcheck disable=SC2015,SC2086 # ignore shellcheck
+      docker compose -f ${_project} -p ${_projectName} up --no-start --no-recreate ${_projectService} > /dev/null 2> /dev/null || true
+
+      while read -r; do
+        _projectContainers+=( "$REPLY" )
+      done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+
+      for _projectContainer in "${_projectContainers[@]}"; do
+        _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
+        _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
+          
+        # create docker network; credit: https://stackoverflow.com/a/59878917
+        docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
         
-      if [[ -n "${_containerCmd}" ]]; then
-        # remove logfile
-        _containerLogfile="$(echo "${_containerCmd}" | { grep -Eos "\--logfile [-A-Za-z0-9_/]+.log " || true; } \
-        | sed "s,\--logfile,," \
-        | sed "s, ,,g")"
-        
-        if [[ -n "${_containerLogfile}" ]]; then
-          _containerLogfile="${FS_DIR_USER_DATA}/logs/${_containerLogfile##*/}"
-          sudo rm -f "${_containerLogfile}"
+        # connect container to docker network
+        if [[ "${_containerName}" = "${FS_PROXY_BINANCE}" ]]; then
+          docker network connect --ip "${FS_PROXY_BINANCE_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+        elif [[ "${_containerName}" = "${FS_PROXY_KUCOIN}" ]]; then
+          docker network connect --ip "${FS_PROXY_KUCOIN_IP}" "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
+        else
+          docker network connect "${FS_NETWORK}" "${_containerName}" > /dev/null 2> /dev/null || true
         fi
         
-        # check for frequi port and config
-        if [[ ! "${_containerName}" =~ $FS_REGEX ]]; then
-          _containerApiJson="$(echo "${_containerCmd}" | grep -o "${FS_FREQUI}.json" || true)"
+        # set restart to no to filter faulty containers
+        docker update --restart=no "${_containerName}" > /dev/null
+        
+        # get container command
+        _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_projectContainer}" \
+        | sed "s,\[, ,g" \
+        | sed "s,\], ,g" \
+        | sed "s,\",,g" \
+        | sed "s,\=, ,g" \
+        | sed "s,\/freqtrade\/,,g")"
           
-          if [[ -n "${_containerApiJson}" ]]; then
-            if [[ "$(_fsDockerContainerPs_ "${FS_FREQUI}")" -eq 0 ]]; then
-              _fsMsg_ "API url: /${FS_NAME}/${_containerName}"
-            else
-              _fsMsg_ "FreqUI is not active!"
+        if [[ -n "${_containerCmd}" ]]; then
+          # remove logfile
+          _containerLogfile="$(echo "${_containerCmd}" | { grep -Eos "\--logfile [-A-Za-z0-9_/]+.log " || true; } \
+          | sed "s,\--logfile,," \
+          | sed "s, ,,g")"
+          
+          if [[ -n "${_containerLogfile}" ]]; then
+            _containerLogfile="${FS_DIR_USER_DATA}/logs/${_containerLogfile##*/}"
+            sudo rm -f "${_containerLogfile}"
+          fi
+          
+          # check for frequi port and config
+          if [[ ! "${_containerName}" =~ $FS_REGEX ]]; then
+            _containerApiJson="$(echo "${_containerCmd}" | grep -o "${FS_FREQUI}.json" || true)"
+            
+            if [[ -n "${_containerApiJson}" ]]; then
+              if [[ "$(_fsDockerContainerPs_ "${FS_FREQUI}")" -eq 0 ]]; then
+                _fsMsg_ "API url: /${FS_NAME}/${_containerName}"
+              else
+                _fsMsg_ "FreqUI is not active!"
+              fi
             fi
           fi
         fi
+          
+        # start container
+        if [[ "${_containerActive}" -eq 1 ]]; then
+          _fsMsg_ "Starting container: ${_containerName}"
+          docker start "${_containerName}" > /dev/null
+        else
+          _fsMsg_ "Restarting container: ${_containerName}"
+          docker restart "${_containerName}" > /dev/null
+        fi
+      done
+      
+      if [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
+        echo "${_projectFile}"
       fi
-        
-      # start container
-      if [[ "${_containerActive}" -eq 1 ]]; then
-        docker start "${_containerName}" > /dev/null
-      else
-        docker restart "${_containerName}" > /dev/null
-      fi
+      
+      break
     done
   fi
 }
@@ -559,7 +582,10 @@ _fsDockerProjectValidate_() {
   local _projectContainer=''
   local _containerActive=''
   local _containerName=''
-    
+  local _error=0
+
+  _fsMsgTitle_ "Validate project: ${_projectFile}"
+
   while read -r; do
     _projectContainers+=( "$REPLY" )
   done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
@@ -571,18 +597,17 @@ _fsDockerProjectValidate_() {
       if [[ "${_containerActive}" -eq 0 ]]; then
         # set restart to unless-stopped
         docker update --restart=unless-stopped "${_containerName}" > /dev/null
-        _fsMsg_ '[SUCCESS] Container is active: '"${_containerName}"
+        _fsMsg_ 'Container is active: '"${_containerName}"
       else
         _fsMsg_ '[WARNING] Container is not active: '"${_containerName}"
         _fsDockerRemove_ "${_containerName}"
+        _error=$((_error+1))
       fi
   done
   
-  # update every 12 hours and 3 minutes
-  _fsCrontab_ "3 0 * * *" "${FS_AUTO}"
-  
-  # clear orphaned networks
-  yes $'y' | docker network prune > /dev/null || true
+  if [[ "${_error}" -eq 0 ]] && [[ ! "${_projectFileName}" =~ $FS_REGEX ]]; then
+    echo "${_projectFile}"
+  fi
 }
 
 _fsDockerProjectQuit_() {
@@ -592,25 +617,44 @@ _fsDockerProjectQuit_() {
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
   local _projectName="${_projectFileName//\-/\_}"
-  local _projectContainers=()
-  local _projectContainer=''
+  local _containers=()
+  local _container=''
   local _containerName=''
+  local _quit=0
   
-  while read -r; do
-    _projectContainers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  if [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
+    _fsMsgTitle_ "Quit project: ${_projectFile}"
+    
+    while read -r; do
+      _containers+=( "$REPLY" )
+    done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
 
-  for _projectContainer in "${_projectContainers[@]}"; do
-    _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
+    for _container in "${_containers[@]}"; do
+      _containerName="$(_fsDockerContainerName_ "${_container}")"
+      _fsMsg_ 'Container is active: '"${_containerName}"
+
+      if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 0 ]]; then
+        _quit=$((_quit+1))
+      fi
+    done
     
-    _fsDockerRemove_ "${_containerName}"
-    
-    if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 1 ]]; then
-      _fsMsg_ "[SUCCESS] Container is removed: ${_containerName}"
-    else
-      _fsMsg_ "[WARNING] Container not removed: ${_containerName}"
-    fi
-  done
+    while true; do
+      if [[ "${_quit}" -eq 0 ]]; then
+        _fsMsg_ "No active containers."
+        break
+      elif [[ "$(_fsCaseConfirmation_ "Quit all active containers...")" -eq 1 ]]; then
+        break
+      fi
+
+      for _container in "${_containers[@]}"; do
+        _containerName="$(_fsDockerContainerName_ "${_container}")"
+        _fsDockerRemove_ "${_containerName}"
+      done
+      
+      echo "${_projectFile}"
+      break
+    done
+  fi
 }
 
 _fsDockerStrategy_() {
@@ -662,61 +706,92 @@ _fsDockerStrategy_() {
   fi
 }
 
-_fsDockerProject_() {
-  local _projects=("${@}")
-  local _project=''
-  local _projectDisabled='.disabled'
+_fsDockerProjects_() {
+  local _projects=()
+  local _projectsFilter=()
   local _projectsValidate=()
-
-  # find all projects incl. disabled in script root
-  if (( ! ${#_projects[@]} )); then
-    readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 ! -name "${FS_NAME}*" \( -name "*.yml" -o -name "*.yml${_projectDisabled}" \) -print0)
+  local _project=''
+  local _projectCrontabs=()
+  local _projectCrontabsDeduped=()
+  local _projectCrontab=''
+  local _crontab=''
+  local _crontabArgs=''
+  
+  _crontab="$(crontab -l 2> /dev/null | grep -F "${FS_AUTO}" || true)" # get current auto update crontab
+  readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0) # find all projects incl. disabled in script root
+  
+  if [[ -n "${@}" ]]; then
+    while read -r; do
+      _projectsFilter+=( "$REPLY" )
+    done < <(echo "${@}" | sed "s, ,\n,g" || true)
   fi
   
   if (( ${#_projects[@]} )); then
-    if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then
+    if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then # quit projects
       for _project in "${_projects[@]}"; do
-        if [[ ! "${_project}" =~ $_projectDisabled ]]; then
-          if [[ "$(_fsCaseConfirmation_ "Quit project: ${_project##*/}")" -eq 1 ]]; then
-            _fsMsg_ 'Skipping...'
-          else
-            _fsDockerProjectQuit_ "${_project}"
-            # rename project to disable auto restart
-            sudo mv -f "${_project}" "${_project}${_projectDisabled}"
-          fi
-        fi
-      done
-    else
-      for _project in "${_projects[@]}"; do
-        if [[ "${FS_OPTS_AUTO}" -eq 1 ]] || [[ ! "${_project}" =~ $FS_REGEX ]]; then
-          if [[ "$(_fsCaseConfirmation_ "Compose project: ${_project##*/}")" -eq 1 ]]; then
-            # rename project to disable auto restart
-            sudo mv -f "${_project}" "${_project}${_projectDisabled}"
-            _fsMsg_ 'Skipping...'
-          else
-            # rename project to enable auto restart
-            if [[ "${_project}" =~ $_projectDisabled ]]; then
-              sudo mv -f "${_project}" "${_project%.*}"
-              _project="${_project%.*}"
-            fi
-            
-            _fsDockerProjectCompose_ "${_project}"
-            _projectsValidate+=("${_project}")
-          fi
-        # exclude disabled projects from auto restart
-        elif [[ ! "${_project}" =~ $_projectDisabled ]]; then
-          _fsDockerProjectCompose_ "${_project}"
-          _projectsValidate+=("${_project}")
-        fi
+        _projectCrontabs+=("$(_fsDockerProjectQuit_ "${_project}")")
       done
       
-      if (( ${#_projectsValidate[@]} )); then
-        # countdown if project errors occur
+      if (( ${#_projectCrontabs[@]} )); then
+        if [[ -n "${_crontab}" ]]; then
+          _fsCrontabRemove_ "${_crontab}"
+          
+          _crontabArgs="$(echo "${_crontab}" \
+          | sed "s,${FS_AUTO_ESC},," \
+          | sed "s,\",,g" || true)"
+          
+          for _projectCrontab in "${_projectCrontabs[@]}"; do
+            _crontabArgs="$(echo "${_crontabArgs}" | sed "s,${_projectCrontab},,")"
+          done
+        fi
+        
+        if [[ -n "${_crontabArgs}" ]]; then
+          _crontabArgs="$(echo "${_crontabArgs}" | sed "s, *$,," | sed "s,^[ ]*,," | sed "s,[ ]*, ,g")"
+          _fsCrontab_ "${FS_AUTO}" "${_crontabArgs}"
+        fi
+      fi
+    else # compose projects
+      for _project in "${_projects[@]}"; do
+        if (( ${#_projectsFilter[@]} )); then
+          if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
+            _projectsValidate+=("$(_fsDockerProjectCompose_ "${_project}")")
+          fi
+        elif [[ ! "${_projectFileName}" =~ $FS_REGEX ]]; then
+          _projectsValidate+=("$(_fsDockerProjectCompose_ "${_project}")")
+        fi
+      done
+
+      if (( ${#_projectsValidate[@]} )); then # validate projects
         _fsCdown_ 30 "for any errors..."
         
         for _project in "${_projectsValidate[@]}"; do
-          _fsDockerProjectValidate_ "${_project}"
+          _projectCrontabs+=("$(_fsDockerProjectValidate_ "${_project}")")
         done
+        
+        if (( ${#_projectCrontabs[@]} )); then
+          if [[ -n "${_crontab}" ]]; then
+            _fsCrontabRemove_ "${_crontab}"
+
+            while read -r; do
+              _projectCrontabs+=( "$REPLY" )
+            done < <(echo "${_crontab}" \
+            | sed "s,${FS_AUTO_ESC} ,," \
+            | sed "s,\",,g" \
+            | sed "s, ,\n,g" || true)
+          fi
+          
+          while read -r; do
+            _projectCrontabsDeduped+=( "$REPLY" )
+          done < <(_fsArrayDedupe_ "${_projectCrontabs[@]}")
+          
+          _crontabArgs="${_projectCrontabsDeduped[*]}"
+          
+          if [[ -n "${_crontabArgs}" ]]; then
+            _fsCrontab_ "${FS_AUTO}" "${_crontabArgs}"
+          fi
+        fi
+        
+        yes $'y' | docker network prune > /dev/null || true # clear orphaned networks
       else
         _fsMsg_ "No projects to validate."
       fi
@@ -727,13 +802,18 @@ _fsDockerProject_() {
 }
 
 _fsDockerReset_() {
-  _fsCrontabRemove_ "${FS_AUTO}"
-  _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
-  
-  # credit: https://stackoverflow.com/a/69921248
-  docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
-  docker network prune --force 2> /dev/null || true
-  docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
+
+  if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
+    _fsCrontabRemove_ "${FS_AUTO}"
+    _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
+    
+    # credit: https://stackoverflow.com/a/69921248
+    docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
+    docker network prune --force 2> /dev/null || true
+    docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
+  else
+    _fsMsg_ 'Skipping...'
+  fi
 }
 
 #
@@ -1006,7 +1086,7 @@ _fsFreqtrade_() {
 }
 
 # BINANCE-PROXY; credit: https://github.com/nightshift2k/binance-proxy
-_fsProxyBinance_() {  
+_fsProxyBinance_() {
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 1 ]]; then
     # binance proxy json file; note: sudo because of freqtrade docker user
     _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_BINANCE}.json" \
@@ -1059,7 +1139,7 @@ _fsProxyBinance_() {
     "      --port-futures=8991" \
     "      --verbose" \
     
-    _fsDockerProject_ "${FS_PROXY_BINANCE_YML}"
+    _fsDockerProjects_ "${FS_PROXY_BINANCE_YML##*/}"
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 0 ]]; then
@@ -1104,7 +1184,7 @@ _fsProxyKucoin_() {
     "      -port 8980" \
     "      -verbose 1"
     
-    _fsDockerProject_ "${FS_PROXY_KUCOIN_YML}"
+    _fsDockerProjects_ "${FS_PROXY_KUCOIN_YML##*/}"
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 0 ]]; then
@@ -1341,6 +1421,14 @@ _fsMsg_() {
   "  ${_msg}" >&2
 }
 
+_fsMsgTitle_() {
+  local _msg="${1:-}"
+  
+  printf -- '%s\n' \
+  '' \
+  "# ${_msg}" >&2
+}
+
 _fsMsgError_() {
   local _msg="${1:-}"
   local -r _code="${2:-90}"
@@ -1432,6 +1520,45 @@ _fsArrayDedupe_() {
   printf -- '%s\n' "${_array[@]}"
 }
 
+_fsArrayIn_() {
+  [[ $# -lt 2 ]] && fatal "Missing required argument to ${FUNCNAME[0]}"
+  
+  # credit: https://github.com/labbots/bash-utility
+  local opt
+  local OPTIND=1
+  local _match=1
+
+  while getopts ":iI" opt; do
+    case ${opt} in
+      i | I)
+        # shellcheck disable=SC2064 # reset nocasematch when function exits
+        trap '$(shopt -p nocasematch)' RETURN
+        # use case-insensitive regex
+        shopt -s nocasematch
+        ;;
+      *) fatal "Unrecognized option '${1}' passed to ${FUNCNAME[0]}. Exiting." ;;
+    esac
+  done
+  
+  shift $((OPTIND - 1))
+
+  local _array_item
+  local _value="${1}"
+  shift
+  
+  for _array_item in "$@"; do
+    if [[ ${_array_item} =~ ^${_value}$ ]]; then
+      echo 0
+      _match=0
+      break
+    fi
+  done
+  
+  if [[ "${_match}" -eq 1 ]]; then
+    echo 1
+  fi
+}
+
 _fsArrayShuffle_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
@@ -1456,30 +1583,34 @@ _fsArrayShuffle_() {
 }
 
 _fsCrontab_() {
-  [[ $# -lt 2 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _cronTime="${1}"
-  local _cronCmd="${2}"
-  local _cronJob="${_cronTime} ${_cronCmd}"
+  local _cronCmd="${1}"
+  local _cronArgs="${2:-}"
+  local _cron="${_cronCmd}"
+
+  if [[ -n "${_cronArgs}" ]]; then
+    _cron="${_cronCmd} ${_cronArgs}"
+  fi
   
   # credit: https://stackoverflow.com/a/17975418
-  ( crontab -l 2> /dev/null | grep -v -F "${_cronCmd}" || : ; echo "${_cronJob}" ) | crontab -
+  ( crontab -l 2> /dev/null | grep -v -F "${_cronCmd}" || : ; echo "${_cron}" ) | crontab -
   
-  if [[ "$(_fsCrontabValidate_ "${_cronCmd}")" -eq 1 ]]; then
-    _fsMsgError_ "Cron not set: ${_cronCmd}"
+  if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 1 ]]; then
+    _fsMsg_ "[WARNING] Cron not set: ${_cron}"
   fi
 }
 
 _fsCrontabRemove_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _cronCmd="${1}"
-  if [[ "$(_fsCrontabValidate_ "${_cronCmd}")" -eq 0 ]]; then
+  local _cron="${1}"
+  if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 0 ]]; then
     # credit: https://stackoverflow.com/a/17975418
-    ( crontab -l 2> /dev/null | grep -v -F "${_cronCmd}" || : ) | crontab -
+    ( crontab -l 2> /dev/null | grep -v -F "${_cron}" || : ) | crontab -
     
-    if [[ "$(_fsCrontabValidate_ "${_cronCmd}")" -eq 0 ]]; then
-      _fsMsg_ "Cron not removed: ${_cronCmd}"
+    if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 0 ]]; then
+      _fsMsg_ "[WARNING] Cron not removed: ${_cron}"
     fi
   fi
 }
@@ -1487,9 +1618,9 @@ _fsCrontabRemove_() {
 _fsCrontabValidate_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _cronCmd="${1}"
+  local _cron="${1}"
   
-  if crontab -l 2> /dev/null | grep -q "${_cronCmd}"; then
+  if crontab -l 2> /dev/null | grep -q -F "${_cron}"; then
     echo 0
   else
     echo 1
@@ -1500,15 +1631,16 @@ _fsOptions_() {
   local -r _args=("${@}")
   local _opts
   
-  _opts="$(getopt --options a,d,q,r,u --long auto,debug,quit,reset,update -- "${_args[@]}" 2> /dev/null)" || {
+  _opts="$(getopt --options d,q,r,u --long auto:,debug,quit,reset,update -- "${_args[@]}" 2> /dev/null)" || {
     _fsMsgError_ "Unkown or missing argument."
   }
   
   eval set -- "${_opts}"
   while true; do
     case "${1}" in
-      --auto|-a)
+      --auto)
         FS_OPTS_AUTO=0
+        _auto_args="$(echo "${@}" | sed "s,\-\-auto ,," | sed "s, \-\-,,")"
         break
         ;;
       --debug|-d)
@@ -1558,6 +1690,10 @@ if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsDockerReset_
 elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
   _fsUpdate_
+elif [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
+  _fsProxyBinance_
+  _fsProxyKucoin_
+  _fsDockerProjects_ "${_auto_args}"
 else
   _fsPrerequisites_
   _fsUser_
@@ -1566,7 +1702,7 @@ else
   _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"
   _fsProxyBinance_
   _fsProxyKucoin_
-  _fsDockerProject_
+  _fsDockerProjects_
 fi
 
 exit 0
