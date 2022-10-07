@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.3
+# FREQSTART v3.0.4
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -69,6 +69,12 @@ If you take crypto bot trading seriously never use a VPS with only one core. Fre
 HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
 
 Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
+
+#### Test VPS latency
+
+How to test latency to Binance exchange from your VPS (Ping will not work because Binance is using Cloudflare CDN):
+
+`time curl -X GET "https://api.binance.com/api/v3/exchangeInfo?symbol=BNBBTC"`
 
 ### Setup
 
@@ -156,6 +162,10 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.4`
+* Optimized project compose and quit routines incl. auto update.
+* Removed strategies config download from project strategies routine and added to prerequisites and script update.
 
 `v3.0.3`
 * Auto update now only adds projects to crontab when every container inside has been sucessfully validated.
