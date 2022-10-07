@@ -22,19 +22,19 @@ set -o nounset
 set -o pipefail
 
 readonly FS_NAME="freqstart"
-readonly FS_VERSION='v3.0.3'
+readonly FS_VERSION='v3.0.4'
 readonly FS_TMP="/tmp/${FS_NAME}"
 readonly FS_SYMLINK="/usr/local/bin/${FS_NAME}"
 readonly FS_FILE="${FS_NAME}.sh"
-
+readonly FS_GIT="https://raw.githubusercontent.com/freqstart/freqstart/stable"
+readonly FS_URL="${FS_GIT}/${FS_NAME}.sh"
 FS_DIR="$(dirname "$(readlink --canonicalize-existing "${0}" 2> /dev/null)")"
 readonly FS_DIR
 readonly FS_PATH="${FS_DIR}/${FS_FILE}"
 readonly FS_DIR_USER_DATA="${FS_DIR}/user_data"
 
-readonly FS_AUTO="3 0 * * * ${FS_PATH} --auto"
-FS_AUTO_ESC="$(sed 's/[\*\.\-\/]/\\&/g' <<< "$FS_AUTO")"
-readonly FS_AUTO_ESC
+readonly FS_AUTO_SCHEDULE="3 0 * * *"
+readonly FS_AUTO_SCRIPT="${FS_PATH} --auto"
 
 readonly FS_NETWORK="${FS_NAME}_network"
 readonly FS_NETWORK_SUBNET='172.35.0.0/16'
@@ -56,9 +56,13 @@ readonly FS_CERTBOT="${FS_NAME}_certbot"
 readonly FS_CERTBOT_CRON="${FS_PATH} --cert"
 readonly FS_FREQUI="${FS_NAME}_frequi"
 
-readonly FS_STRATEGIES="${FS_DIR}/${FS_NAME}_strategies.json"
-readonly FS_STRATEGIES_CUSTOM="${FS_DIR}/${FS_NAME}_strategies_custom.json"
-readonly FS_STRATEGIES_URL="https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart_strategies.json"
+readonly FS_STRATEGIES="${FS_NAME}_strategies"
+readonly FS_STRATEGIES_FILE="${FS_STRATEGIES}.json"
+readonly FS_STRATEGIES_URL="${FS_GIT}/${FS_STRATEGIES_FILE}"
+readonly FS_STRATEGIES_PATH="${FS_DIR}/${FS_STRATEGIES_FILE}"
+readonly FS_STRATEGIES_CUSTOM="${FS_STRATEGIES}_custom"
+readonly FS_STRATEGIES_CUSTOM_FILE="${FS_STRATEGIES_CUSTOM}.json"
+readonly FS_STRATEGIES_CUSTOM_PATH="${FS_DIR}/${FS_STRATEGIES_CUSTOM_FILE}"
 
 readonly FS_REGEX="(${FS_PROXY_KUCOIN}|${FS_PROXY_BINANCE}|${FS_NGINX}|${FS_CERTBOT}|${FS_FREQUI})"
 
@@ -119,11 +123,11 @@ _fsDockerVersionHub_() {
   local _dockerRepo="${_dockerImage%:*}"
   local _dockerTag="${_dockerImage##*:}"
   local _dockerUrl=''
+  local _dockerName=''
+  local _dockerManifest=''
   local _token=''
   local _acceptM="application/vnd.docker.distribution.manifest.v2+json"
   local _acceptML="application/vnd.docker.distribution.manifest.list.v2+json"
-  local _dockerName=''
-  local _dockerManifest=''
   
   _dockerUrl="https://registry-1.docker.io/v2/${_dockerRepo}/manifests/${_dockerTag}"
   _dockerName="${FS_NAME}"'_'"$(echo "${_dockerRepo}" | sed "s,\/,_,g" | sed "s,\-,_,g")"
@@ -260,10 +264,24 @@ _fsDockerRemove_() {
   fi
 }
 
-_fsDockerProjectImages_() {
+_fsDockerReset_() {
+  if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
+    _fsCrontabRemove_ "${FS_AUTO_SCRIPT}"
+    _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
+    
+    # credit: https://stackoverflow.com/a/69921248
+    docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
+    docker network prune --force 2> /dev/null || true
+    docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
+  else
+    _fsMsg_ 'Skipping...'
+  fi
+}
+
+_fsProjectImages_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _ymlPath="${1}"
+  local _project="${1}"
   local _ymlImages=()
   local _ymlImagesDeduped=()
   local _ymlImage=''
@@ -273,7 +291,7 @@ _fsDockerProjectImages_() {
   # credit: https://stackoverflow.com/a/39612060
   while read -r; do
     _ymlImages+=( "$REPLY" )
-  done < <(grep -vE '^\s+#' "${_ymlPath}" \
+  done < <(grep -vE '^\s+#' "${_project}" \
   | grep 'image:' \
   | sed "s,\s,,g" \
   | sed "s,image:,,g" || true)
@@ -301,25 +319,26 @@ _fsDockerProjectImages_() {
   fi
 }
 
-_fsDockerProjectStrategies_() {
+_fsProjectStrategies_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _ymlPath="${1}"
+  local _project="${1}"
   local _strategies=()
-  local _strategiesDeduped=()
   local _strategy=''
-  local _strategiesDir=()
-  local _strategiesDirDeduped=()
-  local _strategyDir=''
-  local _strategyPath=''
-  local _strategyFile=''
-  local _strategyPathFound=1
+  local _strategiesDedupe=()
+  local _strategyDedupe=''
+  local _dirs=()
+  local _dirsDedupe=()
+  local _dir=''
+  local _path=''
+  local _pathFound=1
+  local _file=''
   local _error=0
   
   # download or update implemented strategies
   while read -r; do
     _strategies+=( "$REPLY" )
-  done < <(grep -vE '^\s+#' "${_ymlPath}" \
+  done < <(grep -vE '^\s+#' "${_project}" \
   | grep "strategy" \
   | grep -v "strategy-path" \
   | sed "s,\=,,g" \
@@ -329,13 +348,13 @@ _fsDockerProjectStrategies_() {
   
   if (( ${#_strategies[@]} )); then
     while read -r; do
-      _strategiesDeduped+=( "$REPLY" )
+      _strategiesDedupe+=( "$REPLY" )
     done < <(_fsArrayDedupe_ "${_strategies[@]}")
     
     # validate optional strategy paths in project file
     while read -r; do
-      _strategiesDir+=( "$REPLY" )
-    done < <(grep -vE '^\s+#' "${_ymlPath}" \
+      _dirs+=( "$REPLY" )
+    done < <(grep -vE '^\s+#' "${_project}" \
     | grep "strategy-path" \
     | sed "s,\=,,g" \
     | sed "s,\",,g" \
@@ -344,30 +363,30 @@ _fsDockerProjectStrategies_() {
     | sed "s,^/[^/]*,${FS_DIR}," || true)
     
     # add default strategy path
-    _strategiesDir+=( "${FS_DIR_USER_DATA}/strategies" )
+    _dirs+=( "${FS_DIR_USER_DATA}/strategies" )
     
     while read -r; do
-      _strategiesDirDeduped+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_strategiesDir[@]}")
+      _dirsDedupe+=( "$REPLY" )
+    done < <(_fsArrayDedupe_ "${_dirs[@]}")
     
-    for _strategy in "${_strategiesDeduped[@]}"; do
-      _fsDockerStrategy_ "${_strategy}"
+    for _strategyDedupe in "${_strategiesDedupe[@]}"; do
+      _fsStrategy_ "${_strategyDedupe}"
       
-      for _strategyDir in "${_strategiesDirDeduped[@]}"; do
-        _strategyPath="${_strategyDir}"'/'"${_strategy}"'.py'
-        _strategyFile="${_strategyPath##*/}"
-        if [[ -f "${_strategyPath}" ]]; then
-          _strategyPathFound=0
+      for _dir in "${_dirsDedupe[@]}"; do
+        _path="${_dir}/${_strategyDedupe}.py"
+        _file="${_path##*/}"
+        if [[ -f "${_path}" ]]; then
+          _pathFound=0
           break
         fi
       done
       
-      if [[ "${_strategyPathFound}" -eq 1 ]]; then
-        _fsMsg_ 'Strategy file not found: '"${_strategyFile}"
+      if [[ "${_pathFound}" -eq 1 ]]; then
+        _fsMsg_ 'Strategy file not found: '"${_file}"
         _error=$((_error+1))
       fi
       
-      _strategyPathFound=1
+      _pathFound=1
     done
   fi
   
@@ -378,19 +397,20 @@ _fsDockerProjectStrategies_() {
   fi
 }
 
-_fsDockerProjectConfigs_() {
+_fsProjectConfigs_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _ymlPath="${1}"
+  local _project="${1}"
   local _configs=()
-  local _configsDeduped=()
   local _config=''
-  local _configPath=''
+  local _configsDedupe=()
+  local _configDedupe=''
+  local _path=''
   local _error=0
   
   while read -r; do
     _configs+=( "$REPLY" )
-  done < <(grep -vE '^\s+#' "${_ymlPath}" \
+  done < <(grep -vE '^\s+#' "${_project}" \
   | grep -e "\-\-config" -e "\-c" \
   | sed "s,\=,,g" \
   | sed "s,\",,g" \
@@ -401,13 +421,13 @@ _fsDockerProjectConfigs_() {
   
   if (( ${#_configs[@]} )); then
     while read -r; do
-      _configsDeduped+=( "$REPLY" )
+      _configsDedupe+=( "$REPLY" )
     done < <(_fsArrayDedupe_ "${_configs[@]}")
     
-    for _config in "${_configsDeduped[@]}"; do
-      _configPath="${FS_DIR}/${_config}"
-      if [[ ! -f "${_configPath}" ]]; then
-        _fsMsg_ "Config file does not exist: ${_configPath##*/}"
+    for _configDedupe in "${_configsDedupe[@]}"; do
+      _path="${FS_DIR}/${_configDedupe}"
+      if [[ ! -f "${_path}" ]]; then
+        _fsMsg_ "Config file does not exist: ${_path##*/}"
         _error=$((_error+1))
       fi
     done
@@ -420,55 +440,46 @@ _fsDockerProjectConfigs_() {
   fi
 }
 
-_fsDockerProjectCompose_() {
+_fsProjectCompose_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
 
   local _project="${1}"
-  local _projectService="${2:-}" # optional: service
+  local _service="${2:-}" # optional: service
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
   local _projectName="${_projectFileName//\-/\_}"
   local _projectImages=1
   local _projectStrategies=1
   local _projectConfigs=1
-  local _projectContainers=()
-  local _projectContainer=''
-  
+  local _containers=()
+  local _container=''
   local _containerActive=''
   local _containerName=''
   local _containerCmd=''
   local _containerLogfile=''
-  
   local _compose=0
   local _error=0
-  
-  _fsMsgTitle_ "Compose project: ${_projectFile}"
 
-  _projectStrategies="$(_fsDockerProjectStrategies_ "${_project}")"
-  _projectConfigs="$(_fsDockerProjectConfigs_ "${_project}")"
-  _projectImages="$(_fsDockerProjectImages_ "${_project}")"
-  
-  [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
-  [[ "${_projectStrategies}" -eq 1 ]] && _error=$((_error+1))
-  [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
-  
-  if [[ "${_error}" -eq 0 ]]; then
-    while true; do
-      if [[ "${FS_OPTS_AUTO}" -eq 1 ]]; then
-        if [[ "$(_fsCaseConfirmation_ "Start all container...")" -eq 1 ]]; then
-          break
-        fi
-      fi
-      
-      # shellcheck disable=SC2015,SC2086 # ignore shellcheck
-      docker compose -f ${_project} -p ${_projectName} up --no-start --no-recreate ${_projectService} > /dev/null 2> /dev/null || true
+  [[ ! -f "${_project}" ]] && _fsMsgError_ "File not found: ${_projectFile}"
+
+  if [[ "$(_fsCaseConfirmation_ "Compose project: ${_projectFile}")" -eq 0 ]]; then
+    _projectStrategies="$(_fsProjectStrategies_ "${_project}")"
+    _projectConfigs="$(_fsProjectConfigs_ "${_project}")"
+    _projectImages="$(_fsProjectImages_ "${_project}")"
+    
+    [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
+    [[ "${_projectStrategies}" -eq 1 ]] && _error=$((_error+1))
+    [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
+    
+    if [[ "${_error}" -eq 0 ]]; then
+      docker compose -f "${_project}" -p "${_projectName}" up --no-start --no-recreate $_service > /dev/null 2> /dev/null || true
 
       while read -r; do
-        _projectContainers+=( "$REPLY" )
+        _containers+=( "$REPLY" )
       done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
 
-      for _projectContainer in "${_projectContainers[@]}"; do
-        _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
+      for _container in "${_containers[@]}"; do
+        _containerName="$(_fsDockerContainerName_ "${_container}")"
         _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
           
         # create docker network; credit: https://stackoverflow.com/a/59878917
@@ -487,7 +498,7 @@ _fsDockerProjectCompose_() {
         docker update --restart=no "${_containerName}" > /dev/null
         
         # get container command
-        _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_projectContainer}" \
+        _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_container}" \
         | sed "s,\[, ,g" \
         | sed "s,\], ,g" \
         | sed "s,\",,g" \
@@ -529,69 +540,74 @@ _fsDockerProjectCompose_() {
         fi
       done
       
-      if [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
-        echo "${_projectFile}"
-      fi
-      
-      break
-    done
+      echo 0
+    else
+      echo 1
+    fi
+  else
+    echo 1
   fi
 }
 
-_fsDockerProjectRun_() {
+_fsProjectRun_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
 
   local _project="${1}"
-  local _projectService="${2:-}" # optional: service
+  local _service="${2:-}" # optional: service
   shift;shift;_projectArgs="${*:-}" # optional: arguments
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
   local _projectName="${_projectFileName//\-/\_}"
   local _projectImages=1
   local _projectShell=''
-  
   local _error=0
-  
-  _projectImages="$(_fsDockerProjectImages_ "${_project}")"
-  
-  [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
-  
-  if [[ "${_error}" -eq 0 ]]; then
-    # workaround to execute shell from variable; help: open for suggestions
-    _projectShell="$(printf -- '%s' "${_projectArgs}" | grep -oE '^/bin/sh -c' || true)"
+
+  if [[ -f "${_project}" ]]; then
+    _projectImages="$(_fsProjectImages_ "${_project}")"
     
-    if [[ -n "${_projectShell}" ]]; then
-      _projectArgs="$(printf -- '%s' "${_projectArgs}" | sed 's,/bin/sh -c ,,')"
-      # shellcheck disable=SC2015,SC2086 # ignore shellcheck
-      docker compose -f ${_project} -p ${_projectName} run --rm "${_projectService}" /bin/sh -c "${_projectArgs}"
-    else
-      # shellcheck disable=SC2015,SC2086 # ignore shellcheck
-      docker compose -f ${_project} -p ${_projectName} run --rm ${_projectService} ${_projectArgs}
+    [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
+    
+    if [[ "${_error}" -eq 0 ]]; then
+      # workaround to execute shell from variable; help: open for suggestions
+      _projectShell="$(printf -- '%s' "${_projectArgs}" | grep -oE '^/bin/sh -c' || true)"
+      
+      if [[ -n "${_projectShell}" ]]; then
+        _projectArgs="$(printf -- '%s' "${_projectArgs}" | sed 's,/bin/sh -c ,,')"
+        # shellcheck disable=SC2015,SC2086 # ignore shellcheck
+        docker compose -f ${_project} -p ${_projectName} run --rm "${_service}" /bin/sh -c "${_projectArgs}"
+      else
+        # shellcheck disable=SC2015,SC2086 # ignore shellcheck
+        docker compose -f ${_project} -p ${_projectName} run --rm $_service $_projectArgs
+      fi
     fi
+  else
+    _fsMsgError_ "File not found: ${_projectFile}"
   fi
 }
 
-_fsDockerProjectValidate_() {
+_fsProjectValidate_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
 
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
   local _projectName="${_projectFileName//\-/\_}"
-  local _projectContainers=()
-  local _projectContainer=''
+  local _containers=()
+  local _container=''
   local _containerActive=''
   local _containerName=''
   local _error=0
 
-  _fsMsgTitle_ "Validate project: ${_projectFile}"
-
+  [[ ! -f "${_project}" ]] && _fsMsgError_ "File not found: ${_projectFile}"
+  
+  _fsMsg_ "Validate project: ${_projectFile}"
+  
   while read -r; do
-    _projectContainers+=( "$REPLY" )
+    _containers+=( "$REPLY" )
   done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
 
-  for _projectContainer in "${_projectContainers[@]}"; do
-    _containerName="$(_fsDockerContainerName_ "${_projectContainer}")"
+  for _container in "${_containers[@]}"; do
+    _containerName="$(_fsDockerContainerName_ "${_container}")"
     _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
     
       if [[ "${_containerActive}" -eq 0 ]]; then
@@ -605,12 +621,16 @@ _fsDockerProjectValidate_() {
       fi
   done
   
-  if [[ "${_error}" -eq 0 ]] && [[ ! "${_projectFileName}" =~ $FS_REGEX ]]; then
-    echo "${_projectFile}"
+  if [[ "${_error}" -eq 0 ]] && [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
+    _fsMsg_ "[SUCCESS] All container active and project added to auto update."
+    echo 0
+  else
+    _fsMsg_ "[WARNING] Not all container are active."
+    echo 1
   fi
 }
 
-_fsDockerProjectQuit_() {
+_fsProjectQuit_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
 
   local _project="${1}"
@@ -622,197 +642,102 @@ _fsDockerProjectQuit_() {
   local _containerName=''
   local _quit=0
   
-  if [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
-    _fsMsgTitle_ "Quit project: ${_projectFile}"
+  [[ ! -f "${_project}" ]] && _fsMsgError_ "File not found: ${_projectFile}"
+  
+  while read -r; do
+    _containers+=( "$REPLY" )
+  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  
+  for _container in "${_containers[@]}"; do
+    _containerName="$(_fsDockerContainerName_ "${_container}")"
     
-    while read -r; do
-      _containers+=( "$REPLY" )
-    done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
-
+    if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 0 ]]; then
+      _quit=$((_quit+1))
+    fi
+  done
+  
+  if [[ "${_quit}" -eq 0 ]]; then
+    _fsMsg_ "No active containers in: ${_projectFile}"
+    echo 0
+  elif [[ "$(_fsCaseConfirmation_ "Quit active containers in: ${_projectFile}")" -eq 1 ]]; then
+    echo 1
+  else
     for _container in "${_containers[@]}"; do
       _containerName="$(_fsDockerContainerName_ "${_container}")"
-      _fsMsg_ 'Container is active: '"${_containerName}"
-
-      if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 0 ]]; then
-        _quit=$((_quit+1))
-      fi
+      _fsDockerRemove_ "${_containerName}"
     done
     
-    while true; do
-      if [[ "${_quit}" -eq 0 ]]; then
-        _fsMsg_ "No active containers."
-        break
-      elif [[ "$(_fsCaseConfirmation_ "Quit all active containers...")" -eq 1 ]]; then
-        break
-      fi
-
-      for _container in "${_containers[@]}"; do
-        _containerName="$(_fsDockerContainerName_ "${_container}")"
-        _fsDockerRemove_ "${_containerName}"
-      done
-      
-      echo "${_projectFile}"
-      break
-    done
+    echo 0
   fi
 }
 
-_fsDockerStrategy_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _strategyName="${1}"
-  local _strategyDir="${FS_DIR_USER_DATA}/strategies/${_strategyName}"
-  local _strategyUrls=()
-  local _strategyUrlsDeduped=()
-  local _strategyUrl=''
-  local _strategyPath=''
-  local _strategyDownload=''
-  local _configDownload=''
-
-  # create the strategy config
-  _configDownload="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES}")"
-  
-  if [[ -f "${FS_STRATEGIES}" ]]; then
-    while read -r; do
-    _strategyUrls+=( "$REPLY" )
-    done < <(jq -r ".${_strategyName}[]"' // empty' "${FS_STRATEGIES}")
-    
-    # add custom strategies from file
-    if [[ -f "${FS_STRATEGIES_CUSTOM}" ]]; then
-      while read -r; do
-      _strategyUrls+=( "$REPLY" )
-      done < <(jq -r ".${_strategyName}[]"' // empty' "${FS_STRATEGIES_CUSTOM}")
-    fi
-        
-    if (( ${#_strategyUrls[@]} )); then
-      while read -r; do
-      _strategyUrlsDeduped+=( "$REPLY" )
-      done < <(_fsArrayDedupe_ "${_strategyUrls[@]}")
-    fi
-    
-    if (( ${#_strategyUrlsDeduped[@]} )); then
-      # note: sudo because of freqtrade docker user
-      sudo mkdir -p "${_strategyDir}"
-      
-      for _strategyUrl in "${_strategyUrlsDeduped[@]}"; do
-        _strategyPath="${_strategyDir}/${_strategyUrl##*/}"
-        _strategyDownload="$(_fsDownload_ "${_strategyUrl}" "${_strategyPath}")"
-      done
-    else
-      _fsMsg_ "[WARNING] Strategy not implemented: ${_strategyName}"
-    fi
-  else
-    _fsMsgError_ "Strategy config file not found!"
-  fi
-}
-
-_fsDockerProjects_() {
+_fsProjects_() {
   local _projects=()
-  local _projectsFilter=()
-  local _projectsValidate=()
   local _project=''
-  local _projectCrontabs=()
-  local _projectCrontabsDeduped=()
-  local _projectCrontab=''
-  local _crontab=''
-  local _crontabArgs=''
+  local _projectsFilter=("$@")
+  local _validateProjects=()
+  local _validateProject=''
+  local _crontabProjects=()
+  local _crontabProjectsList=''
   
-  _crontab="$(crontab -l 2> /dev/null | grep -F "${FS_AUTO}" || true)" # get current auto update crontab
-  readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0) # find all projects incl. disabled in script root
-  
-  if [[ -n "${@}" ]]; then
-    while read -r; do
-      _projectsFilter+=( "$REPLY" )
-    done < <(echo "${@}" | sed "s, ,\n,g" || true)
-  fi
+  readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0) # find all projects in script root
   
   if (( ${#_projects[@]} )); then
     if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then # quit projects
+      _fsMsgTitle_ "QUIT"
+
       for _project in "${_projects[@]}"; do
-        _projectCrontabs+=("$(_fsDockerProjectQuit_ "${_project}")")
+        if [[ ! "${_project##*/}" =~ $FS_REGEX ]]; then
+          if [[ "$(_fsProjectQuit_ "${_project}")" -eq 0 ]]; then
+            _crontabProjects+=("${_project##*/}")
+          fi
+        fi
       done
       
-      if (( ${#_projectCrontabs[@]} )); then
-        if [[ -n "${_crontab}" ]]; then
-          _fsCrontabRemove_ "${_crontab}"
-          
-          _crontabArgs="$(echo "${_crontab}" \
-          | sed "s,${FS_AUTO_ESC},," \
-          | sed "s,\",,g" || true)"
-          
-          for _projectCrontab in "${_projectCrontabs[@]}"; do
-            _crontabArgs="$(echo "${_crontabArgs}" | sed "s,${_projectCrontab},,")"
-          done
-        fi
-        
-        if [[ -n "${_crontabArgs}" ]]; then
-          _crontabArgs="$(echo "${_crontabArgs}" | sed "s, *$,," | sed "s,^[ ]*,," | sed "s,[ ]*, ,g")"
-          _fsCrontab_ "${FS_AUTO}" "${_crontabArgs}"
-        fi
+      if (( ${#_crontabProjects[@]} )); then
+        _crontabProjectsList="${_crontabProjects[*]}"
+        _fsCrontabModify_ "a" "${FS_AUTO_SCHEDULE}" "${FS_AUTO_SCRIPT}" $_crontabProjectsList
       fi
     else # compose projects
+      _fsMsgTitle_ "COMPOSE"
+      
       for _project in "${_projects[@]}"; do
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
-            _projectsValidate+=("$(_fsDockerProjectCompose_ "${_project}")")
+            if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
+              _validateProjects+=("${_project}")
+            fi
           fi
-        elif [[ ! "${_projectFileName}" =~ $FS_REGEX ]]; then
-          _projectsValidate+=("$(_fsDockerProjectCompose_ "${_project}")")
+        elif [[ ! "${_project##*/}" =~ $FS_REGEX ]]; then
+          if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
+            _validateProjects+=("${_project}")
+          fi
         fi
       done
+      
+      _fsMsgTitle_ "VALIDATE"
 
-      if (( ${#_projectsValidate[@]} )); then # validate projects
+      if (( ${#_validateProjects[@]} )); then # validate projects
         _fsCdown_ 30 "for any errors..."
         
-        for _project in "${_projectsValidate[@]}"; do
-          _projectCrontabs+=("$(_fsDockerProjectValidate_ "${_project}")")
+        for _validateProject in "${_validateProjects[@]}"; do
+          if [[ "$(_fsProjectValidate_ "${_validateProject}")" -eq 0 ]]; then
+            _crontabProjects+=("${_validateProject##*/}")
+          fi
         done
-        
-        if (( ${#_projectCrontabs[@]} )); then
-          if [[ -n "${_crontab}" ]]; then
-            _fsCrontabRemove_ "${_crontab}"
 
-            while read -r; do
-              _projectCrontabs+=( "$REPLY" )
-            done < <(echo "${_crontab}" \
-            | sed "s,${FS_AUTO_ESC} ,," \
-            | sed "s,\",,g" \
-            | sed "s, ,\n,g" || true)
-          fi
-          
-          while read -r; do
-            _projectCrontabsDeduped+=( "$REPLY" )
-          done < <(_fsArrayDedupe_ "${_projectCrontabs[@]}")
-          
-          _crontabArgs="${_projectCrontabsDeduped[*]}"
-          
-          if [[ -n "${_crontabArgs}" ]]; then
-            _fsCrontab_ "${FS_AUTO}" "${_crontabArgs}"
-          fi
+        if (( ${#_crontabProjects[@]} )); then
+          _crontabProjectsList="${_crontabProjects[*]}"
+          _fsCrontabModify_ "e" "${FS_AUTO_SCHEDULE}" "${FS_AUTO_SCRIPT}" $_crontabProjectsList
         fi
-        
-        yes $'y' | docker network prune > /dev/null || true # clear orphaned networks
       else
         _fsMsg_ "No projects to validate."
       fi
     fi
+    
+    yes $'y' | docker network prune > /dev/null || true # clear orphaned networks
   else
     _fsMsg_ "No projects found."
-  fi
-}
-
-_fsDockerReset_() {
-
-  if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
-    _fsCrontabRemove_ "${FS_AUTO}"
-    _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
-    
-    # credit: https://stackoverflow.com/a/69921248
-    docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
-    docker network prune --force 2> /dev/null || true
-    docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
-  else
-    _fsMsg_ 'Skipping...'
   fi
 }
 
@@ -821,17 +746,27 @@ _fsDockerReset_() {
 #
 
 _fsUpdate_() {
-  local _url="https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart.sh"
   local _download=''
+  local _strategies=''
   
-  _download="$(_fsDownload_ "${_url}" "${FS_PATH}")"
+  _fsMsgTitle_ "UPDATE"
   
-  if [[ "${_download}" -eq 1 ]]; then
-    _fsMsg_ "[SUCCESS] Script is updated to newest version!"
-    sudo chmod +x "${FS_PATH}"
-    exit 0
-  else
-    _fsMsg_ "Script is already latest version (stable)."
+  if [[ "$(_fsCaseConfirmation_ "Update script and strategy files?")" -eq 0 ]]; then
+    _download="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
+    _strategies="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}")"
+    
+    if [[ "${_download}" -eq 1 ]]; then
+      _fsMsg_ "[SUCCESS] Script file is updated to newest version."
+      sudo chmod +x "${FS_PATH}"
+    else
+      _fsMsg_ "Script file is already latest version."
+    fi
+    
+    if [[ "${_download}" -eq 1 ]]; then
+      _fsMsg_ "[SUCCESS] Strategy file is updated to newest version."
+    else
+      _fsMsg_ "Strategy file is already latest version."
+    fi
   fi
 }
 
@@ -935,6 +870,11 @@ _fsUser_() {
 
 _fsPrerequisites_() {
   local _upgradesConf="/etc/apt/apt.conf.d/50unattended-upgrades"
+  
+  # create the strategy config
+  if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
+    _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
+  fi
   
   # install and validate all required packages
   _setupPkgs_ "curl" "cron" "docker-ce" "systemd-container" "uidmap" "dbus-user-session" "jq"
@@ -1078,7 +1018,7 @@ _fsFreqtrade_() {
     '      - "'"${FS_DIR_USER_DATA}"':/freqtrade/user_data"'
     
     # create user_data folder
-    _fsDockerProjectRun_ "${_yml}" 'freqtrade' \
+    _fsProjectRun_ "${_yml}" 'freqtrade' \
     "create-userdir --userdir /freqtrade/${FS_DIR_USER_DATA##*/}"
     
     sudo rm -f "${_yml}"
@@ -1139,7 +1079,7 @@ _fsProxyBinance_() {
     "      --port-futures=8991" \
     "      --verbose" \
     
-    _fsDockerProjects_ "${FS_PROXY_BINANCE_YML##*/}"
+    _fsProjects_ "${FS_PROXY_BINANCE_YML##*/}"
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 0 ]]; then
@@ -1184,7 +1124,7 @@ _fsProxyKucoin_() {
     "      -port 8980" \
     "      -verbose 1"
     
-    _fsDockerProjects_ "${FS_PROXY_KUCOIN_YML##*/}"
+    _fsProjects_ "${FS_PROXY_KUCOIN_YML##*/}"
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 0 ]]; then
@@ -1270,6 +1210,51 @@ _fsArchitecture_() {
     fi
   else
     echo "${_architecture}"
+  fi
+}
+
+_fsStrategy_() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  
+  local _name="${1}"
+  local _dir="${FS_DIR_USER_DATA}/strategies/${_name}"
+  local _urls=()
+  local _urlsDedupe=()
+  local _url=''
+  local _path=''
+  local _download=''
+  
+  if [[ -f "${FS_STRATEGIES_PATH}" ]]; then
+    while read -r; do
+    _urls+=( "$REPLY" )
+    done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_PATH}")
+    
+    # add custom strategies from file
+    if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
+      while read -r; do
+      _urls+=( "$REPLY" )
+      done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_CUSTOM_PATH}")
+    fi
+        
+    if (( ${#_urls[@]} )); then
+      while read -r; do
+      _urlsDedupe+=( "$REPLY" )
+      done < <(_fsArrayDedupe_ "${_urls[@]}")
+    fi
+    
+    if (( ${#_urlsDedupe[@]} )); then
+      # note: sudo because of freqtrade docker user
+      sudo mkdir -p "${_dir}"
+      
+      for _url in "${_urlsDedupe[@]}"; do
+        _path="${_dir}/${_url##*/}"
+        _download="$(_fsDownload_ "${_url}" "${_path}")"
+      done
+    else
+      _fsMsg_ "[WARNING] Strategy not implemented: ${_name}"
+    fi
+  else
+    _fsMsgError_ "Strategy config file not found!"
   fi
 }
 
@@ -1387,9 +1372,14 @@ _fsCaseConfirmation_() {
   
   local _question="${1}"
   local _yesNo=''
-  
+
   while true; do
-    read -rp "? ${_question} (y/n) " _yesNo
+    if [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
+      _yesNo="y"
+    else
+      read -rp "? ${_question} (y/n) " _yesNo
+    fi
+    
     case ${_yesNo} in
       [Yy]*)
         echo 0
@@ -1583,21 +1573,72 @@ _fsArrayShuffle_() {
 }
 
 _fsCrontab_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  [[ $# -lt 2 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _cronCmd="${1}"
-  local _cronArgs="${2:-}"
-  local _cron="${_cronCmd}"
-
-  if [[ -n "${_cronArgs}" ]]; then
-    _cron="${_cronCmd} ${_cronArgs}"
+  local _schedule="${1}"
+  local _script="${2}"
+  local _cron="${_schedule} ${_script}"
+  local _args="${3}"
+  
+  if [[ -n "${_args}" ]]; then
+    _cron="${_cron} ${_args}"
   fi
   
   # credit: https://stackoverflow.com/a/17975418
-  ( crontab -l 2> /dev/null | grep -v -F "${_cronCmd}" || : ; echo "${_cron}" ) | crontab -
+  ( crontab -l 2> /dev/null | grep -v -F "${_script}" || : ; echo "${_cron}" ) | crontab -
   
   if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 1 ]]; then
     _fsMsg_ "[WARNING] Cron not set: ${_cron}"
+  fi
+}
+
+_fsCrontabModify_() {
+  [[ $# -lt 3 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+
+  local _mode="${1}" # arguments: e (extend); a (abbreviate)
+  local _schedule="${2}"
+  local _script="${3}"
+  shift; shift; shift
+  local _args=("${@}")
+  local _argsDedupe=()
+  local _arg=''
+
+  local _crontab=''
+  local _crontabArgs=''
+  
+  _crontab="$(crontab -l 2> /dev/null | grep -F "${_script}" || true)" # get current crontab
+  
+  if [[ -n "${_crontab}" ]]; then
+    if [[ "${_mode}" = "e" ]]; then # extend current crontab
+      while read -r; do
+        _args+=( "$REPLY" )
+      done < <(echo "${_crontab}" \
+      | sed "s,\(.*\)${_script} ,," \
+      | sed "s, ,\n,g" || true)
+      
+      while read -r; do
+        _argsDedupe+=( "$REPLY" )
+      done < <(_fsArrayDedupe_ "${_args[@]}")
+      
+      _crontabArgs="${_argsDedupe[*]}"
+    elif [[ "${_mode}" = "a" ]]; then # abbreviate current crontab
+      _crontabArgs="$(echo "${_crontab}" \
+      | sed "s,\(.*\)${_script} ,," || true)"
+      
+      for _arg in "${_args[@]}"; do
+        _crontabArgs="$(echo "${_crontabArgs}" | sed "s,${_arg},,")"
+      done
+    fi
+  else
+    _crontabArgs="${_args[*]}"
+  fi
+  
+  _crontabArgs="$(echo "${_crontabArgs}" | tr -s ' ' | sed "s,^[ ],," | sed "s,[ ]$,,")" # sanitize whitespace
+  
+  if [[ -n "${_crontabArgs}" ]]; then
+    _fsCrontab_ "${_schedule}" "${_script}" "${_crontabArgs}"
+  else
+    _fsCrontabRemove_ "${_script}"
   fi
 }
 
@@ -1639,8 +1680,9 @@ _fsOptions_() {
   while true; do
     case "${1}" in
       --auto)
+        shift
+        _auto_args="$(echo "${@}" | sed "s, \-\-,,")"
         FS_OPTS_AUTO=0
-        _auto_args="$(echo "${@}" | sed "s,\-\-auto ,," | sed "s, \-\-,,")"
         break
         ;;
       --debug|-d)
@@ -1693,7 +1735,7 @@ elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
 elif [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
   _fsProxyBinance_
   _fsProxyKucoin_
-  _fsDockerProjects_ "${_auto_args}"
+  _fsProjects_ $_auto_args
 else
   _fsPrerequisites_
   _fsUser_
@@ -1702,7 +1744,7 @@ else
   _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"
   _fsProxyBinance_
   _fsProxyKucoin_
-  _fsDockerProjects_
+  _fsProjects_
 fi
 
 exit 0
