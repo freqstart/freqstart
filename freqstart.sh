@@ -457,12 +457,21 @@ _fsProjectCompose_() {
   local _containerName=''
   local _containerCmd=''
   local _containerLogfile=''
-  local _compose=0
+  local _compose=1
   local _error=0
 
   [[ ! -f "${_project}" ]] && _fsMsgError_ "File not found: ${_projectFile}"
+  
+  if [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
+    if [[ "$(_fsCaseConfirmation_ "Compose project: ${_projectFile}")" -eq 0 ]]; then
+      _compose=0
+    fi
+  else
+    _fsMsg_ "Compose project: ${_projectFile}"
+    _compose=0
+  fi
 
-  if [[ "$(_fsCaseConfirmation_ "Compose project: ${_projectFile}")" -eq 0 ]]; then
+  if [[ "${_compose}" -eq 0 ]]; then
     _projectStrategies="$(_fsProjectStrategies_ "${_project}")"
     _projectConfigs="$(_fsProjectConfigs_ "${_project}")"
     _projectImages="$(_fsProjectImages_ "${_project}")"
@@ -767,6 +776,8 @@ _fsUpdate_() {
     else
       _fsMsg_ "Strategy file is already latest version."
     fi
+  else
+    _fsMsg_ "Skipping..."
   fi
 }
 
@@ -1027,6 +1038,8 @@ _fsFreqtrade_() {
 
 # BINANCE-PROXY; credit: https://github.com/nightshift2k/binance-proxy
 _fsProxyBinance_() {
+  _fsMsgTitle_ "PROXY: BINANCE"
+
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 1 ]]; then
     # binance proxy json file; note: sudo because of freqtrade docker user
     _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_BINANCE}.json" \
@@ -1079,16 +1092,21 @@ _fsProxyBinance_() {
     "      --port-futures=8991" \
     "      --verbose" \
     
-    _fsProjects_ "${FS_PROXY_BINANCE_YML##*/}"
+    _fsProjectCompose_ "${FS_PROXY_BINANCE_YML}"
+    _fsCdown_ 30 "for any errors..."
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 0 ]]; then
     _fsMsg_ "Binance proxy is active: --config /freqtrade/user_data/${FS_PROXY_BINANCE}.json"
+  else
+    _fsMsg_ "[WARNING] Binance proxy is not active!"
   fi
 }
 
 # KUCOIN-PROXY; credit: https://github.com/mikekonan/exchange-proxy
-_fsProxyKucoin_() {  
+_fsProxyKucoin_() {
+  _fsMsgTitle_ "PROXY: KUCOIN"
+
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 1 ]]; then
     # kucoin proxy json file; note: sudo because of freqtrade docker user
     _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_KUCOIN}.json" \
@@ -1124,11 +1142,14 @@ _fsProxyKucoin_() {
     "      -port 8980" \
     "      -verbose 1"
     
-    _fsProjects_ "${FS_PROXY_KUCOIN_YML##*/}"
+    _fsProjectCompose_ "${FS_PROXY_KUCOIN_YML}"
+    _fsCdown_ 30 "for any errors..."
   fi
   
   if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 0 ]]; then
     _fsMsg_ "Kucoin proxy is active: --config /freqtrade/user_data/${FS_PROXY_KUCOIN}.json"
+  else
+    _fsMsg_ "[WARNING] Kucoin proxy is not active!"
   fi
 }
 
