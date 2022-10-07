@@ -164,7 +164,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 ### Changelog
 
 `v3.0.4`
-* TBA
+* Optimized project compose and quit routines incl. auto update.
 
 `v3.0.3`
 * Auto update now only adds projects to crontab when every container inside has been sucessfully validated.
