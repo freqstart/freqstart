@@ -165,6 +165,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 
 `v3.0.4`
 * Optimized project compose and quit routines incl. auto update.
+* Removed strategies config download from project strategies routine and added to prerequisites and script update.
 
 `v3.0.3`
 * Auto update now only adds projects to crontab when every container inside has been sucessfully validated.
