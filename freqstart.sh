@@ -22,7 +22,7 @@ set -o nounset
 set -o pipefail
 
 readonly FS_NAME="freqstart"
-readonly FS_VERSION='v3.0.4'
+readonly FS_VERSION='v3.0.5'
 readonly FS_TMP="/tmp/${FS_NAME}"
 readonly FS_SYMLINK="/usr/local/bin/${FS_NAME}"
 readonly FS_FILE="${FS_NAME}.sh"
@@ -631,10 +631,10 @@ _fsProjectValidate_() {
   done
   
   if [[ "${_error}" -eq 0 ]] && [[ ! "${_projectFile}" =~ $FS_REGEX ]]; then
-    _fsMsg_ "[SUCCESS] All container active and project added to auto update."
+    _fsMsg_ "[SUCCESS] All container active in: ${_projectFile}"
     echo 0
   else
-    _fsMsg_ "[WARNING] Not all container are active."
+    _fsMsg_ "[WARNING] Not all container active in: ${_projectFile}"
     echo 1
   fi
 }
@@ -765,16 +765,16 @@ _fsUpdate_() {
     _strategies="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}")"
     
     if [[ "${_download}" -eq 1 ]]; then
-      _fsMsg_ "[SUCCESS] Script file is updated to newest version."
+      _fsMsg_ "[SUCCESS] Updated to newest version: ${FS_STRATEGIES_PATH##*/}"
       sudo chmod +x "${FS_PATH}"
     else
-      _fsMsg_ "Script file is already latest version."
+      _fsMsg_ "Already latest version: ${FS_STRATEGIES_PATH##*/}"
     fi
     
-    if [[ "${_download}" -eq 1 ]]; then
-      _fsMsg_ "[SUCCESS] Strategy file is updated to newest version."
+    if [[ "${_strategies}" -eq 1 ]]; then
+      _fsMsg_ "[SUCCESS] Updated to newest version: ${FS_PATH##*/}"
     else
-      _fsMsg_ "Strategy file is already latest version."
+      _fsMsg_ "Already latest version: ${FS_PATH##*/}"
     fi
   else
     _fsMsg_ "Skipping..."
@@ -1702,7 +1702,7 @@ _fsOptions_() {
     case "${1}" in
       --auto)
         shift
-        _auto_args="$(echo "${@}" | sed "s, \-\-,,")"
+        FS_ARGS_AUTO="$(echo "${@}" | sed "s, \-\-,,")"
         FS_OPTS_AUTO=0
         break
         ;;
@@ -1740,12 +1740,14 @@ _fsOptions_() {
 _fsLogo_
 _fsScriptlock_
 
-FS_ARCHITECTURE="$(_fsArchitecture_)"
 FS_OPTS_AUTO=1
 FS_OPTS_DEBUG=1
 FS_OPTS_QUIT=1
 FS_OPTS_RESET=1
 FS_OPTS_UPDATE=1
+
+FS_ARCHITECTURE="$(_fsArchitecture_)"
+FS_ARGS_AUTO=''
 
 _fsOptions_ "${@}"
 
@@ -1753,19 +1755,17 @@ if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsDockerReset_
 elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
   _fsUpdate_
-elif [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
-  _fsProxyBinance_
-  _fsProxyKucoin_
-  _fsProjects_ $_auto_args
 else
+  if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsPrerequisites_
   _fsUser_
   _fsRootless_
   _fsFreqtrade_
   _fsSymlinkCreate_ "${FS_PATH}" "${FS_SYMLINK}"
+  fi
   _fsProxyBinance_
   _fsProxyKucoin_
-  _fsProjects_
+  _fsProjects_ $FS_ARGS_AUTO
 fi
 
 exit 0
