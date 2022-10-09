@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.4
+# FREQSTART v3.0.5
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -162,6 +162,9 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.5`
+* Fixed wrong response in update routine. 
 
 `v3.0.4`
 * Optimized project compose and quit routines incl. auto update.
