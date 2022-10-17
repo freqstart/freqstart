@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.5
+# FREQSTART v3.0.6
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
