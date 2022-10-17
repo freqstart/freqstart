@@ -627,7 +627,6 @@ _fsProjectValidate_() {
   if [[ "${_error}" -eq 0 ]]; then
     echo 0
   else
-    _fsMsg_ "[WARNING] Not all container active in: ${_projectFile}"
     echo 1
   fi
 }
