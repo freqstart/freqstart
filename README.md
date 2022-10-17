@@ -78,19 +78,19 @@ How to test latency to Binance exchange from your VPS (Ping will not work becaus
 
 ### Setup
 
-1. Clone the repo
+   Clone the repo
    ```sh
    git clone https://github.com/freqstart/freqstart.git
    ```
-2. Change directory to `freqstart`
+   Change directory to `freqstart`
    ```sh
    cd ~/freqstart
    ```
-3. Make `freqstart.sh` executable
+   Make `freqstart.sh` executable
    ```sh
    sudo chmod +x freqstart.sh
    ```
-4. Setup `freqstart`
+   Setup `freqstart`
    ```sh
    ./freqstart.sh
    ```
