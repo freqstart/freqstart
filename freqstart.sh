@@ -230,11 +230,9 @@ _fsDockerContainerPs_() {
   fi
   
   if [[ "${_dockerMatch}" -eq 0 ]]; then
-    # docker container exist
-    echo 0
+    echo 0 # docker container exist
   else
-    # docker container does not exist
-    echo 1
+    echo 1 # docker container does not exist
   fi
 }
 
@@ -264,7 +262,7 @@ _fsDockerRemove_() {
     docker rm -f "${_dockerName}" > /dev/null
     
     if [[ "$(_fsDockerContainerPs_ "${_dockerName}" "all")" -eq 0 ]]; then
-      _fsMsg_ "[WARNING] Cannot remove container: ${_dockerName}"
+      _fsMsgWarning_ "Cannot remove container: ${_dockerName}"
     else
       _fsMsg_ "Container removed: ${_dockerName}"
     fi
@@ -492,7 +490,7 @@ _fsProjectCompose_() {
       # create docker network; credit: https://stackoverflow.com/a/59878917
       docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
 
-      docker compose -f "${_project}" -p "${_projectName}" up --no-start --no-recreate > /dev/null 2> /dev/null || true
+      docker compose -f "${_project}" -p "${_projectName}" up --no-start > /dev/null 2> /dev/null || true
 
       while read -r; do
         _containers+=( "$REPLY" )
@@ -520,7 +518,7 @@ _fsProjectCompose_() {
           docker start "${_containerName}" > /dev/null
         else
           _fsMsg_ "Restarting container: ${_containerName}"
-          #docker restart "${_containerName}" > /dev/null
+          docker restart "${_containerName}" > /dev/null
         fi
       done
       
@@ -576,9 +574,12 @@ _fsProjectValidate_() {
   
   _fsMsg_ "Validate project: ${_projectFile}"
   
-  _cors="$(cat "${FS_FREQUI_JSON}" | \
-  grep "CORS_origins" | \
-  grep -oE "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)")"
+  if [[ -f "${FS_FREQUI_JSON}" ]]; then
+    _cors="$(cat "${FS_FREQUI_JSON}" | \
+    grep "CORS_origins" | \
+    grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" \
+    || true)"
+  fi
   
   while read -r; do
     _containers+=( "$REPLY" )
@@ -587,8 +588,13 @@ _fsProjectValidate_() {
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
     _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
-
+    
     if [[ "${_containerActive}" -eq 0 ]]; then
+      _fsMsg_ 'Container is active: '"${_containerName}"
+      
+      # set restart to unless-stopped
+      docker update --restart=unless-stopped "${_containerName}" > /dev/null
+    
       if [[ ! "${_containerName}" =~ $FS_REGEX ]]; then
         # get container command
         _containerCmd="$(docker inspect --format="{{.Config.Cmd}}" "${_container}" \
@@ -599,30 +605,26 @@ _fsProjectValidate_() {
         | sed "s,\/freqtrade\/,,g")"
         
         if [[ -n "${_containerCmd}" ]]; then
-          _containerApiJson="$(echo "${_containerCmd}" | grep -o "${FS_FREQUI}.json" || true)"
-        
+          _containerApiJson="$(echo "${_containerCmd}" | grep -o "${FS_FREQUI_JSON##*/}" || true)"
+
           if [[ -n "${_containerApiJson}" ]]; then
             if [[ "$(_fsDockerContainerPs_ "${FS_FREQUI}")" -eq 0 ]]; then
-              _fsMsg_ "API url: http://${_cors}/${FS_NAME}/${_containerName}"
+              _fsMsg_ "API url: https://${_cors}/${FS_NAME}/${_containerName}"
             else
-              _fsMsg_ "FreqUI is not active!"
+              _fsMsgWarning_ "FreqUI is not active!"
             fi
           fi
         fi
       fi
-
-      # set restart to unless-stopped
-      docker update --restart=unless-stopped "${_containerName}" > /dev/null
-      _fsMsg_ 'Container is active: '"${_containerName}"
     else
-      _fsMsg_ '[WARNING] Container is not active: '"${_containerName}"
+      _fsMsgWarning_ 'Container is not active: '"${_containerName}"
       _fsDockerRemove_ "${_containerName}"
       _error=$((_error+1))
     fi
   done
   
+  
   if [[ "${_error}" -eq 0 ]]; then
-    _fsMsgSuccess_ "All container active in: ${_projectFile}"
     echo 0
   else
     _fsMsg_ "[WARNING] Not all container active in: ${_projectFile}"
@@ -684,7 +686,7 @@ _fsProjects_() {
   
   if (( ${#_projects[@]} )); then
     if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then # quit projects
-      _fsMsgTitle_ "QUIT"
+      _fsMsgTitle_ "PROJECTS: QUIT"
 
       for _project in "${_projects[@]}"; do
         if [[ ! "${_project##*/}" =~ $FS_REGEX ]]; then
@@ -699,7 +701,7 @@ _fsProjects_() {
         _fsCrontabModify_ "a" "${FS_AUTO_SCHEDULE}" "${FS_AUTO_SCRIPT}" $_crontabProjectsList
       fi
     else # compose projects
-      _fsMsgTitle_ "COMPOSE"
+      _fsMsgTitle_ "PROJECTS: COMPOSE"
       
       for _project in "${_projects[@]}"; do
         if (( ${#_projectsFilter[@]} )); then
@@ -715,7 +717,7 @@ _fsProjects_() {
         fi
       done
       
-      _fsMsgTitle_ "VALIDATE"
+      _fsMsgTitle_ "PROJECTS: VALIDATE"
 
       if (( ${#_validateProjects[@]} )); then # validate projects
         _fsCdown_ 30 "for any errors..."
@@ -749,6 +751,7 @@ _fsProjects_() {
 
 _fsSetup_() {
   _fsSetupPrerequisites_
+  _fsSetupUser_
   _fsSetupDocker_
   _fsSetupFreqtrade_
   _fsSetupProxyBinance_
@@ -785,7 +788,7 @@ _fsUpdate_() {
   fi
 }
 
-_fsUser_() {
+_fsSetupUser_() {
   local	_userSudo=''
   local	_userSudoer=''
   local	_userSudoerFile=''
@@ -872,12 +875,14 @@ _fsUser_() {
       _fsMsgError_ "User does not exist: ${_userTmp}"
     fi
   else
-    if ! sudo grep -q "${_userSudoer}" "${_userSudoerFile}" 2> /dev/null; then
-      echo "${_userSudoer}" | sudo tee "${_userSudoerFile}" > /dev/null
-      _fsMsgSuccess_ "Sudo activated for current user."
-    else
-      _fsMsgSuccess_ "Sudo is already active for current user."
-    fi
+    while true; do
+      if ! sudo grep -q "${_userSudoer}" "${_userSudoerFile}" 2> /dev/null; then
+        echo "${_userSudoer}" | sudo tee "${_userSudoerFile}" > /dev/null
+      else
+        _fsMsg_ "Sudo is active for user: ${FS_USER}"
+        break
+      fi
+    done
   fi
 }
 
@@ -1171,7 +1176,7 @@ _fsSetupTailscale_() {
 
   while true; do
     if ! sudo ufw status | grep -q "tailscale0"; then
-      if [[ "$(_fsCaseConfirmation_ "Restrict all access to Tailscale IP via UFW (recommended)?")" -eq 0 ]]; then
+      if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale via UFW (recommended)?")" -eq 0 ]]; then
         # ufw allow access over tailscale
         sudo ufw --force reset > /dev/null
         sudo ufw allow in on tailscale0 > /dev/null
@@ -1222,6 +1227,10 @@ _fsSetupFrequi_() {
         _fsMsg_ "Skipping..."
         break
       fi
+    else
+      _fsMsg_ "FreqUI is accessible via: https://${_tailscaleIp}"
+      _fsMsg_ "Add: --config /freqtrade/user_data/${FS_FREQUI_JSON##*/}"
+      break
     fi
     
     mkdir -p "${FS_NGINX_DIR}/conf"
@@ -1433,8 +1442,6 @@ _fsSetupFrequi_() {
     "      --config /freqtrade/user_data/${FS_FREQUI_JSON##*/}"
     
     _fsProjects_ "${FS_FREQUI_YML##*/}"
-    
-    break
   done
 }
 
@@ -1514,12 +1521,7 @@ _fsArchitecture_() {
   fi
 
   if [[ "${_osSupported}" -eq 1 ]] || [[ "${_architectureSupported}" -eq 1 ]]; then
-    _fsMsg_ "[WARNING] Your OS (${_os}/${_architecture}) may not be fully supported."
-    
-    if [[ "FS_OPTS_DEBUG" -eq 1 ]]; then
-      _fsMsg_ 'Bypass this warning with: --debug'
-      exit 1
-    fi
+    _fsMsgError_ "Your OS (${_os}/${_architecture}) is not supported."
   else
     echo "${_architecture}"
   fi
@@ -1563,7 +1565,7 @@ _fsStrategy_() {
         _download="$(_fsDownload_ "${_url}" "${_path}")"
       done
     else
-      _fsMsg_ "[WARNING] Strategy not implemented: ${_name}"
+      _fsMsgWarning_ "Strategy not implemented: ${_name}"
     fi
   else
     _fsMsgError_ "Strategy config file not found!"
@@ -1592,7 +1594,7 @@ _fsDownload_() {
   curl --connect-timeout 10 -fsSL "${_url}" -o "${_outputTmp}" || true
 
   if [[ ! -s "${_outputTmp}" ]] && [[ -f "${_output}" ]]; then
-    _fsMsg_ "[WARNING] Can not get newer file: ${_url}"
+    _fsMsgWarning_ "Can not get newer file: ${_url}"
     echo 0
   elif [[ -s "${_outputTmp}" ]]; then
     if [[ -f "${_output}" ]]; then
@@ -1734,6 +1736,13 @@ _fsMsgSuccess_() {
   
   printf -- '%s\n' \
   "+ [SUCCESS] ${_msg}" >&2
+}
+
+_fsMsgWarning_() {
+  local _msg="${1:-}"
+  
+  printf -- '%s\n' \
+  "! [WARNING] ${_msg}" >&2
 }
 
 _fsMsgError_() {
@@ -1907,7 +1916,7 @@ _fsCrontab_() {
   ( crontab -l 2> /dev/null | grep -v -F "${_script}" || : ; echo "${_cron}" ) | crontab -
   
   if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 1 ]]; then
-    _fsMsg_ "[WARNING] Cron not set: ${_cron}"
+    _fsMsgWarning_ "Cron not set: ${_cron}"
   fi
 }
 
@@ -1970,7 +1979,7 @@ _fsCrontabRemove_() {
     ( crontab -l 2> /dev/null | grep -v -F "${_cron}" || : ) | crontab -
     
     if [[ "$(_fsCrontabValidate_ "${_cron}")" -eq 0 ]]; then
-      _fsMsg_ "[WARNING] Cron not removed: ${_cron}"
+      _fsMsgWarning_ "Cron not removed: ${_cron}"
     fi
   fi
 }
