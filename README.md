@@ -76,7 +76,7 @@ How to test latency to Binance exchange from your VPS (Ping will not work becaus
 
 `time curl -X GET "https://api.binance.com/api/v3/exchangeInfo?symbol=BNBBTC"`
 
-### Setup
+### Setup `Freqstart`
 
    Clone the repo
    ```sh
@@ -94,7 +94,13 @@ How to test latency to Binance exchange from your VPS (Ping will not work becaus
    ```sh
    ./freqstart.sh
    ```
-   
+
+### Update `Freqstart` script and strategies file
+
+   ```sh
+   freqstart --update
+   ```
+
 ### Start `Freqtrade` docker projects
 
    ```sh
@@ -113,12 +119,6 @@ How to test latency to Binance exchange from your VPS (Ping will not work becaus
    freqstart --reset
    ```
 
-### Update `Freqtrade` script from git stable repository
-
-   ```sh
-   freqstart --update
-   ```
-   
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- EXAMPLE PROJECT -->
