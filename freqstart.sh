@@ -545,8 +545,6 @@ _fsProjectRun_() {
   local _projectShell=''
   local _error=0
   
-  _fsMsg_ "_projectArgs: ${_projectArgs}"
-
   if [[ -f "${_project}" ]]; then
     _projectImages="$(_fsProjectImages_ "${_project}")"
     
@@ -749,13 +747,24 @@ _fsProjects_() {
 # SETUP
 ######################################################################
 
+_fsSetup_() {
+  _fsSetupPrerequisites_
+  _fsSetupDocker_
+  _fsSetupFreqtrade_
+  _fsSetupProxyBinance_
+  _fsSetupProxyKucoin_
+  _fsSetupTailscale_
+  _fsSetupFrequi_
+  _fsSetupFinish_
+}
+
 _fsUpdate_() {
   local _script=''
   local _strategies=''
   
   _fsMsgTitle_ "UPDATE"
   
-  if [[ "$(_fsCaseConfirmation_ "Update script and strategy files?")" -eq 0 ]]; then
+  if [[ "$(_fsCaseConfirmation_ "Update script and strategy file?")" -eq 0 ]]; then
     _script="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
     _strategies="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}")"
     
@@ -986,14 +995,14 @@ _fsSetupFreqtrade_() {
   while true; do
     if [[ ! -d "${FS_DIR_USER_DATA}" ]]; then
       _fsFileCreate_ "${_yml}" \
-      '---' \
+      "---" \
       "version: '3'" \
-      'services:' \
-      '  freqtrade:' \
-      '    image: freqtradeorg/freqtrade:latest' \
-      '    container_name: freqtrade' \
-      '    volumes:' \
-      "      - \"${FS_DIR_USER_DATA}:/freqtrade/user_data\""
+      "services:" \
+      "  freqtrade:" \
+      "    image: freqtradeorg/freqtrade:latest" \
+      "    container_name: freqtrade" \
+      "    volumes:" \
+      "      - \"${FS_DIR_USER_DATA}:/freqtrade/user_data\"" \
       "    command: >" \
       "      create-userdir" \
       "      --userdir /freqtrade/${FS_DIR_USER_DATA##*/}" \
@@ -1188,7 +1197,19 @@ _fsSetupTailscale_() {
 
 _fsSetupFrequi_() {
   local _tailscaleIp="$(tailscale ip -4 2> /dev/null)"
-
+  local _sysctl="${FS_NGINX_DIR}/99-${FS_NAME}.conf"
+  local _sysctlSymlink="/etc/sysctl.d/${_sysctl##*/}"
+  local _jwt=''
+  local _login=''
+  local _username=''
+  local _password=''
+  local _bypass=''
+  local _sslKey="${FS_NGINX_DIR}/nginx-selfsigned.key"
+  local _sslCert="${FS_NGINX_DIR}/nginx-selfsigned.crt"
+  local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
+  local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
+  local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
+  
   _fsMsgTitle_ "SETUP: FREQUI"
   while true; do
     if [[ -z "${_tailscaleIp}" ]]; then
@@ -1205,10 +1226,194 @@ _fsSetupFrequi_() {
     
     mkdir -p "${FS_NGINX_DIR}/conf"
     
-    _fsFrequiPorts_
-    _fsFrequiLogin_ "${_tailscaleIp}"
-    _fsFrequiNginx_ "${_tailscaleIp}"
+    # set unprivileged ports to start with 80 for rootles nginx proxy
+    while true; do
+      if [[ "$(_fsSymlinkValidate_ "${_sysctlSymlink}")" -eq 1 ]]; then
+        _fsFileCreate_ "${_sysctl}" \
+        "# ${FS_NAME}" \
+        '# set unprivileged ports to start with 80 for rootless nginx proxy' \
+        'net.ipv4.ip_unprivileged_port_start = 80'
+
+        if [[ "$(_fsSymlinkCreate_ "${_sysctl}" "${_sysctlSymlink}")" -eq 0 ]]; then
+          sudo sysctl -p "${_sysctlSymlink}" > /dev/null
+        fi
+      else
+        _fsMsg_ "Unprivileged ports for rootless nginx proxy allowed."
+        break
+      fi
+    done
+
+    # generate login data for api and nginx
+    while true; do
+      if [[ -f "${FS_NGINX_HTPASSWD}" ]] && [[ -f "${FS_FREQUI_JSON}" ]]; then
+        if [[ "$(_fsCaseConfirmation_ "Skip creating new login data?")" -eq 0 ]]; then
+          _fsMsg_ "Skipping..."
+          break
+        else
+          rm -f "${FS_NGINX_HTPASSWD}"
+          rm -f "${FS_FREQUI_JSON}"
+        fi
+      else
+        _fsMsg_"Create login data:"
+      fi
+      
+      _jwt="$(_fsRandomBase64UrlSafe_ 32)"
+      _login="$(_fsLogin_)"
+      _username="$(_fsLoginDataUsername_ "${_login}")"
+      _password="$(_fsLoginDataPassword_ "${_login}")"
+
+      # create htpasswd for nginx
+      while true; do
+        if [[ -f "${FS_NGINX_HTPASSWD}" ]]; then
+          _fsMsg_ "Login for Nginx is created."
+        else
+          sh -c "echo -n ${_username}':' > ${FS_NGINX_HTPASSWD}"
+          sh -c "openssl passwd ${_password} >> ${FS_NGINX_HTPASSWD}"
+        fi
+      done
+      
+      # create frequi json for bots
+      while true; do
+        if [[ -f "${FS_FREQUI_JSON}" ]]; then
+          _fsMsg_ "FreqUI config is created."
+        else
+          _fsFileCreate_ "${FS_FREQUI_JSON}" \
+          '{' \
+          '    "api_server": {' \
+          '        "enabled": true,' \
+          '        "listen_ip_address": "0.0.0.0",' \
+          '        "listen_port": 9999,' \
+          '        "verbosity": "error",' \
+          '        "enable_openapi": false,' \
+          '        "jwt_secret_key": "'"${_jwt}"'",' \
+          '        "CORS_origins": ["'"${_tailscaleIp}"'"],' \
+          '        "username": "'"${_username}"'",' \
+          '        "password": "'"${_password}"'"' \
+          '    }' \
+          '}'
+        fi
+      done
+      
+      break
+    done
+
+    # create nginx conf for ip ssl; credit: https://serverfault.com/a/1060487
+    _fsFileCreate_ "${FS_NGINX_CONF}" \
+    "map \$http_cookie \$rate_limit_key {" \
+    "    default \$binary_remote_addr;" \
+    '    "~__Secure-rl-bypass='"${_bypass}"'" "";' \
+    "}" \
+    "limit_req_status 429;" \
+    "limit_req_zone \$rate_limit_key zone=auth:10m rate=1r/m;" \
+    "server {" \
+    "    listen 0.0.0.0:80;" \
+    "    location / {" \
+    "        return 301 https://\$host\$request_uri;" \
+    "    }" \
+    "}" \
+    "server {" \
+    "    listen 0.0.0.0:443 ssl;" \
+    "    include /etc/nginx/snippets/${_sslConf##*/};" \
+    "    include /etc/nginx/snippets/${_sslConfParam##*/};" \
+    "    location / {" \
+    "        resolver 127.0.0.11;" \
+    "        set \$_pass ${FS_FREQUI}:9999;" \
+    "        auth_basic \"Restricted\";" \
+    "        auth_basic_user_file /etc/nginx/conf.d/${FS_NGINX_HTPASSWD##*/};" \
+    "        limit_req zone=auth burst=20 nodelay;" \
+    "        add_header Set-Cookie \"__Secure-rl-bypass='${_bypass}';Max-Age=31536000;Domain=\$host;Path=/;Secure;HttpOnly\";" \
+    "        proxy_pass http://\$_pass;" \
+    "        proxy_set_header X-Real-IP \$remote_addr;" \
+    "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" \
+    "        proxy_set_header Host \$host;" \
+    "        proxy_set_header X-NginX-Proxy true;" \
+    "        proxy_redirect off;" \
+    "    }" \
+    "    location /api {" \
+    "        return 400;" \
+    "    }" \
+    "    location ~ ^/(${FS_NAME})/([^/]+)(.*) {" \
+    "        resolver 127.0.0.11;" \
+    "        set \$_pass \$2:9999\$3;" \
+    "        proxy_pass http://\$_pass;" \
+    "        proxy_set_header X-Real-IP \$remote_addr;" \
+    "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" \
+    "        proxy_set_header Host \$host;" \
+    "        proxy_set_header X-NginX-Proxy true;" \
+    "        proxy_redirect off;" \
+    "    }" \
+    "}" \
     
+    _fsFileCreate_ "${_sslConf}" \
+    "ssl_certificate /etc/ssl/certs/${_sslCert##*/};" \
+    "ssl_certificate_key /etc/ssl/private/${_sslKey##*/};"
+    
+    _fsFileCreate_ "${_sslConfParam}" \
+    "ssl_protocols TLSv1.2;" \
+    "ssl_prefer_server_ciphers on;" \
+    "ssl_dhparam /etc/nginx/${_sslParam##*/};" \
+    "ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;" \
+    "ssl_ecdh_curve secp384r1; # Requires nginx >= 1.1.0" \
+    "ssl_session_timeout 10m;" \
+    "ssl_session_cache shared:SSL:10m;" \
+    "ssl_session_tickets off; # Requires nginx >= 1.5.9" \
+    "ssl_stapling on; # Requires nginx >= 1.3.7" \
+    "ssl_stapling_verify on; # Requires nginx => 1.3.7" \
+    "resolver 8.8.8.8 8.8.4.4 valid=300s;" \
+    "resolver_timeout 5s;" \
+    "add_header X-Frame-Options DENY;" \
+    "add_header X-Content-Type-Options nosniff;" \
+    "add_header X-XSS-Protection \"1; mode=block\";"
+    
+    # generate self-signed certificate
+    while true; do
+      if [[ -f "${_sslKey}" ]]; then
+        if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
+          _fsMsg_ "Skipping..."
+          break
+        else
+          rm -f "${_sslKey}"
+          rm -f "${_sslCert}"
+          rm -f "${_sslParam}"
+        fi
+      fi
+
+      touch "${_sslParam}"
+
+      sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
+      
+      if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then
+        _fsMsgError_ 'Failed to create SSL key or cert files. Restart Nginx setup!'
+        
+        rm -f "${_sslKey}"
+        rm -f "${_sslCert}"
+        rm -f "${_sslParam}"
+      fi
+      
+      break
+    done
+
+    # create nginx docker project file
+    _fsFileCreate_ "${FS_NGINX_YML}" \
+    "version: '3'" \
+    "services:" \
+    "  ${FS_NGINX}:" \
+    "    container_name: ${FS_NGINX}" \
+    "    image: ${FS_ARCHITECTURE}/nginx:stable" \
+    "    ports:" \
+    "      - \"${_tailscaleIp}:80:80\"" \
+    "      - \"${_tailscaleIp}:443:443\"" \
+    "    volumes:" \
+    "      - \"${FS_NGINX_DIR}/conf:/etc/nginx/conf.d\"" \
+    "      - \"${_sslConf}:/etc/nginx/snippets/${_sslConf##*/}\"" \
+    "      - \"${_sslConfParam}:/etc/nginx/snippets/${_sslConfParam##*/}\"" \
+    "      - \"${_sslParam}:/etc/nginx/${_sslParam##*/}\"" \
+    "      - \"${_sslCert}:/etc/ssl/certs/${_sslCert##*/}\"" \
+    "      - \"${_sslKey}:/etc/ssl/private/${_sslKey##*/}\""
+    
+    _fsProjects_ "${FS_NGINX_YML##*/}"
+    
+    # create frequi docker project file
     _fsFileCreate_ "${FS_FREQUI_YML}" \
     "---" \
     "version: '3'" \
@@ -1231,220 +1436,6 @@ _fsSetupFrequi_() {
     
     break
   done
-}
-
-_fsFrequiPorts_() {
-  local _sysctl="${FS_NGINX_DIR}/99-${FS_NAME}.conf"
-  local _sysctlSymlink="/etc/sysctl.d/${_sysctl##*/}"
-  
-  while true; do
-    if [[ "$(_fsSymlinkValidate_ "${_sysctlSymlink}")" -eq 1 ]]; then
-      # set unprivileged ports to start with 80 for rootles nginx proxy
-      _fsFileCreate_ "${_sysctl}" \
-      "# ${FS_NAME}" \
-      '# set unprivileged ports to start with 80 for rootless nginx proxy' \
-      'net.ipv4.ip_unprivileged_port_start = 80'
-
-      if [[ "$(_fsSymlinkCreate_ "${_sysctl}" "${_sysctlSymlink}")" -eq 0 ]]; then
-        sudo sysctl -p "${_sysctlSymlink}" > /dev/null
-      fi
-    else
-      _fsMsg_ "Unprivileged ports for rootless nginx proxy allowed."
-      break
-    fi
-  done
-}
-
-_fsFrequiLogin_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-
-  local _origins="${1}"
-  local _jwt=''
-  local _username=''
-  local _password=''
-  
-  while true; do
-    if [[ -f "${FS_NGINX_HTPASSWD}" ]] && [[ -f "${FS_FREQUI_JSON}" ]]; then
-      if [[ "$(_fsCaseConfirmation_ "Skip creating new login data?")" -eq 0 ]]; then
-        _fsMsg_ "Skipping..."
-        break
-      else
-        rm -f "${FS_NGINX_HTPASSWD}"
-        rm -f "${FS_FREQUI_JSON}"
-      fi
-    else
-      _fsMsg_"Create login data:"
-    fi
-    
-    _jwt="$(_fsRandomBase64UrlSafe_ 32)"
-    
-    # generate login data for api and nginx
-    _loginData="$(_fsLoginData_)"
-    _username="$(_fsLoginDataUsername_ "${_loginData}")"
-    _password="$(_fsLoginDataPassword_ "${_loginData}")"
-
-    # create htpasswd for nginx
-    while true; do
-      if [[ -f "${FS_NGINX_HTPASSWD}" ]]; then
-        _fsMsg_ "Login for Nginx is created."
-      else
-        sh -c "echo -n ${_username}':' > ${FS_NGINX_HTPASSWD}"
-        sh -c "openssl passwd ${_password} >> ${FS_NGINX_HTPASSWD}"
-      fi
-    done
-    
-    # create frequi json for bots
-    while true; do
-      if [[ -f "${FS_FREQUI_JSON}" ]]; then
-        _fsMsg_ "FreqUI config is created."
-      else
-        _fsFileCreate_ "${FS_FREQUI_JSON}" \
-        '{' \
-        '    "api_server": {' \
-        '        "enabled": true,' \
-        '        "listen_ip_address": "0.0.0.0",' \
-        '        "listen_port": 9999,' \
-        '        "verbosity": "error",' \
-        '        "enable_openapi": false,' \
-        '        "jwt_secret_key": "'"${_jwt}"'",' \
-        '        "CORS_origins": ["'"${_origins}"'"],' \
-        '        "username": "'"${_username}"'",' \
-        '        "password": "'"${_password}"'"' \
-        '    }' \
-        '}'
-      fi
-    done
-    
-    break
-  done
-}
-
-_fsFrequiNginx_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-
-  local _ip="${1}"
-  local _bypass=''
-  local _sslKey="${FS_NGINX_DIR}/nginx-selfsigned.key"
-  local _sslCert="${FS_NGINX_DIR}/nginx-selfsigned.crt"
-  local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
-  local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
-  local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
-  
-  # create nginx conf for ip ssl; credit: https://serverfault.com/a/1060487
-  _fsFileCreate_ "${FS_NGINX_CONF}" \
-  "map \$http_cookie \$rate_limit_key {" \
-  "    default \$binary_remote_addr;" \
-  '    "~__Secure-rl-bypass='"${_bypass}"'" "";' \
-  "}" \
-  "limit_req_status 429;" \
-  "limit_req_zone \$rate_limit_key zone=auth:10m rate=1r/m;" \
-  "server {" \
-  "    listen 0.0.0.0:80;" \
-  "    location / {" \
-  "        return 301 https://\$host\$request_uri;" \
-  "    }" \
-  "}" \
-  "server {" \
-  "    listen 0.0.0.0:443 ssl;" \
-  "    include /etc/nginx/snippets/${_sslConf##*/};" \
-  "    include /etc/nginx/snippets/${_sslConfParam##*/};" \
-  "    location / {" \
-  "        resolver 127.0.0.11;" \
-  "        set \$_pass ${FS_FREQUI}:9999;" \
-  "        auth_basic \"Restricted\";" \
-  "        auth_basic_user_file /etc/nginx/conf.d/${FS_NGINX_HTPASSWD##*/};" \
-  "        limit_req zone=auth burst=20 nodelay;" \
-  "        add_header Set-Cookie \"__Secure-rl-bypass='${_bypass}';Max-Age=31536000;Domain=\$host;Path=/;Secure;HttpOnly\";" \
-  "        proxy_pass http://\$_pass;" \
-  "        proxy_set_header X-Real-IP \$remote_addr;" \
-  "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" \
-  "        proxy_set_header Host \$host;" \
-  "        proxy_set_header X-NginX-Proxy true;" \
-  "        proxy_redirect off;" \
-  "    }" \
-  "    location /api {" \
-  "        return 400;" \
-  "    }" \
-  "    location ~ ^/(${FS_NAME})/([^/]+)(.*) {" \
-  "        resolver 127.0.0.11;" \
-  "        set \$_pass \$2:9999\$3;" \
-  "        proxy_pass http://\$_pass;" \
-  "        proxy_set_header X-Real-IP \$remote_addr;" \
-  "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" \
-  "        proxy_set_header Host \$host;" \
-  "        proxy_set_header X-NginX-Proxy true;" \
-  "        proxy_redirect off;" \
-  "    }" \
-  "}" \
-  
-  _fsFileCreate_ "${_sslConf}" \
-  "ssl_certificate /etc/ssl/certs/${_sslCert##*/};" \
-  "ssl_certificate_key /etc/ssl/private/${_sslKey##*/};"
-  
-  _fsFileCreate_ "${_sslConfParam}" \
-  "ssl_protocols TLSv1.2;" \
-  "ssl_prefer_server_ciphers on;" \
-  "ssl_dhparam /etc/nginx/${_sslParam##*/};" \
-  "ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;" \
-  "ssl_ecdh_curve secp384r1; # Requires nginx >= 1.1.0" \
-  "ssl_session_timeout 10m;" \
-  "ssl_session_cache shared:SSL:10m;" \
-  "ssl_session_tickets off; # Requires nginx >= 1.5.9" \
-  "ssl_stapling on; # Requires nginx >= 1.3.7" \
-  "ssl_stapling_verify on; # Requires nginx => 1.3.7" \
-  "resolver 8.8.8.8 8.8.4.4 valid=300s;" \
-  "resolver_timeout 5s;" \
-  "add_header X-Frame-Options DENY;" \
-  "add_header X-Content-Type-Options nosniff;" \
-  "add_header X-XSS-Protection \"1; mode=block\";"
-  
-  # generate self-signed certificate
-  while true; do
-    if [[ -f "${_sslKey}" ]]; then
-      if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
-        _fsMsg_ "Skipping..."
-        break
-      else
-        rm -f "${_sslKey}"
-        rm -f "${_sslCert}"
-        rm -f "${_sslParam}"
-      fi
-    fi
-
-    touch "${_sslParam}"
-
-    sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
-    
-    if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then
-      _fsMsgError_ 'Failed to create SSL key or cert files. Restart Nginx setup!'
-      
-      rm -f "${_sslKey}"
-      rm -f "${_sslCert}"
-      rm -f "${_sslParam}"
-    fi
-    
-    break
-  done
-
-  # create nginx docker project file
-  _fsFileCreate_ "${FS_NGINX_YML}" \
-  "version: '3'" \
-  "services:" \
-  "  ${FS_NGINX}:" \
-  "    container_name: ${FS_NGINX}" \
-  "    image: ${FS_ARCHITECTURE}/nginx:stable" \
-  "    ports:" \
-  "      - \"${_ip}:80:80\"" \
-  "      - \"${_ip}:443:443\"" \
-  "    volumes:" \
-  "      - \"${FS_NGINX_DIR}/conf:/etc/nginx/conf.d\"" \
-  "      - \"${_sslConf}:/etc/nginx/snippets/${_sslConf##*/}\"" \
-  "      - \"${_sslConfParam}:/etc/nginx/snippets/${_sslConfParam##*/}\"" \
-  "      - \"${_sslParam}:/etc/nginx/${_sslParam##*/}\"" \
-  "      - \"${_sslCert}:/etc/ssl/certs/${_sslCert##*/}\"" \
-  "      - \"${_sslKey}:/etc/ssl/private/${_sslKey##*/}\""
-  
-  _fsProjects_ "${FS_NGINX_YML##*/}"
 }
 
 _fsSetupFinish_() {
@@ -1996,7 +1987,7 @@ _fsCrontabValidate_() {
   fi
 }
 
-_fsLoginData_() {
+_fsLogin_() {
   local _username=''
   local _password=''
   local _passwordCompare=''
@@ -2121,7 +2112,7 @@ _fsOptions_() {
   local -r _args=("${@}")
   local _opts
   
-  _opts="$(getopt --options d,q,r,s,u --long auto:,debug,quit,reset,setup,update -- "${_args[@]}" 2> /dev/null)" || {
+  _opts="$(getopt --options q,r,s,u --long auto:,quit,reset,setup,update -- "${_args[@]}" 2> /dev/null)" || {
     _fsMsgError_ "Unkown or missing argument."
   }
   
@@ -2133,10 +2124,6 @@ _fsOptions_() {
         FS_ARGS_AUTO="$(echo "${@}" | sed "s, \-\-,,")"
         FS_OPTS_AUTO=0
         break
-        ;;
-      --debug|-d)
-        FS_OPTS_DEBUG=0
-        shift
         ;;
       --quit|-q)
         FS_OPTS_QUIT=0
@@ -2165,17 +2152,6 @@ _fsOptions_() {
   done
 }
 
-_fsSetup_() {
-  _fsSetupPrerequisites_
-  _fsSetupDocker_
-  _fsSetupFreqtrade_
-  _fsSetupProxyBinance_
-  _fsSetupProxyKucoin_
-  _fsSetupTailscale_
-  _fsSetupFrequi_
-  _fsSetupFinish_
-}
-
 #
 # RUNTIME
 #
@@ -2184,7 +2160,6 @@ _fsLogo_
 _fsScriptlock_
 
 FS_OPTS_AUTO=1
-FS_OPTS_DEBUG=1
 FS_OPTS_QUIT=1
 FS_OPTS_RESET=1
 FS_OPTS_SETUP=1
@@ -2201,14 +2176,6 @@ elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
   _fsUpdate_
 elif [[ "${FS_OPTS_SETUP}" -eq 0 ]]; then
   _fsSetup_
-  #_fsPrerequisites_
-  #_fsUser_
-  #_fsRootless_
-  #_fsFreqtrade_
-  #_fsProxyBinance_
-  #_fsProxyKucoin_
-  #_fsSetupTailscale_
-  #_fsSetupFinish_
 elif [[ "$(_fsSymlinkValidate_ "${FS_SYMLINK}")" -eq 0 ]];then
   _fsProjects_ $FS_ARGS_AUTO
 else
