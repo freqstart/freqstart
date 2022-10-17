@@ -80,9 +80,9 @@ readonly FS_HASH
 trap _fsCleanup_ EXIT
 trap '_fsErr_ "${FUNCNAME:-.}" ${LINENO}' ERR
 
-#
+######################################################################
 # DOCKER
-#
+######################################################################
 
 _fsDockerVersionCompare_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
@@ -1175,7 +1175,7 @@ _fsSetupTailscale_() {
 
   while true; do
     if ! sudo ufw status | grep -q "tailscale0"; then
-      if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale via UFW (recommended)?")" -eq 0 ]]; then
+      if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale (recommended)?")" -eq 0 ]]; then
         # ufw allow access over tailscale
         sudo ufw --force reset > /dev/null
         sudo ufw allow in on tailscale0 > /dev/null
@@ -1215,6 +1215,7 @@ _fsSetupFrequi_() {
   local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
   
   _fsMsgTitle_ "SETUP: FREQUI"
+  
   while true; do
     if [[ -z "${_tailscaleIp}" ]]; then
       _fsMsg_ "Installation of Tailscale is required. Restart setup!"
@@ -1451,9 +1452,9 @@ _fsSetupFinish_() {
   fi
 }
 
-#
-# FUNCTIONAL
-#
+######################################################################
+# UTILITY
+######################################################################
 
 _fsLogo_() {
   printf -- '%s\n' \
