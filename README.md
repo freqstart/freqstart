@@ -8,7 +8,7 @@ See what has been changed: <a href="#changelog">Changelog</a>
 ## Setup & Docker-Manager for Freqtrade
 
 Freqstart simplifies the use of Freqtrade with Docker. Including a simple setup guide for Freqtrade,
-configurations and FreqUI with a secured SSL proxy for IP or domain. Freqstart also automatically
+configurations and FreqUI with a secured SSL proxy and Tailscale (VPN). Freqstart also automatically
 installs implemented strategies based on Docker Compose files and detects necessary updates.
 
 Freqstart is the combined public knowledge, based on best practice solutions, to run Freqtrade
@@ -23,13 +23,13 @@ For `Freqtrade` related questions, join the official discord: https://discord.gg
 
 ### Features
 
-* `Freqtrade` Guided setup for Docker including the native config generator and creation of "user_data" folder.
-* `Docker` Version check of images via manifest using minimal ressources and creating local backups.
-* `Prerequisites` Install server prerequisites and upgrades and check for server time sync.
-* `FreqUI` Full setup of FreqUI incl. Nginx proxy for secured IP (openssl) or domain (letsencrypt).
-* `Binance Proxy` Setup for Binance proxy if you run multiple bots at once incl. reusable config file.
-* `Kucoin Proxy` Setup for Kucoin proxy if you run multiple bots at once incl. reusable config file.
-* `Strategies` Automated installation of implemented strategies like NostalgiaForInfinity incl. updates every 12h.
+* `Freqtrade` Guided setup for Docker projects.
+* `Docker` Version check of images via manifest using minimal ressources.
+* `Prerequisites` Install server prerequisites and updates.
+* `FreqUI` Full setup of FreqUI incl. Nginx proxy and Tailscale (VPN).
+* `Binance Proxy` Setup for Binance proxy incl. reusable config file.
+* `Kucoin Proxy` Setup for Kucoin proxy incl. reusable config file.
+* `Strategies` Automated installation of implemented strategies incl. updates.
 
 ### Strategies
 
@@ -64,7 +64,7 @@ Packages: curl, jq, docker-ce, docker-compose, docker-ce-rootless-extras, system
 
 ### Recommended VPS
 
-If you take crypto bot trading seriously never use a VPS with only one core. Freqtrade may not utilize multithread but with CPU-heavy strategies like NFIX, your VPS would be locked up nearly 100% every time. Also, it is recommended to add 1 CPU core per bot. So if you run 3 different strategies, you should have at least 4 CPU cores to have some buffer for other system tasks. Additionally install bashtop ($ sudo apt install bashtop), set the timing to 30.000ms, and look how long it takes your VPS to finish the calculation of a new trading candle from 100% to under 20% within 10 bars (= 5 minutes) per core. A good benchmark for NFIX would be 2 minutes, which are 4 bars. Anything higher or permanent above 90% and you risk losing money or never getting any trading entries. Don't be cheap on your way to the moon or you probably end up in goblin town anyways.
+If you take crypto bot trading seriously, never use a VPS with only one core. Freqtrade doesn't use multithreading, but with CPU-heavy strategies like NFIX, your VPS would be at almost 100% capacity every time. It is also recommended to add 1 CPU core per bot. So if you are running 3 different strategies, you should have at least 4 CPU cores to have some buffer for other system tasks. Additionally, install bashtop ($ sudo apt install bashtop), set the timing to 30,000ms and see how long it takes your VPS to finish calculating a new trade candle from 100% to below 20% within 10 bars (= 5 minutes) per core. A good benchmark for NFIX would be 2 minutes, which equals 4 bars. Anything higher or consistently above 90% risks losing you money or never getting a trade entry. Don't be too cheap on your way to the moon, or you'll probably end up in goblin town anyway.
 
 HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
 
@@ -132,7 +132,7 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 
 ### Example Docker Project
 
-* Project file based on NostalgiaForInfinityX and Binance (BUSD) with Proxy enabled.
+* Project file based on NostalgiaForInfinityX and Binance (BUSD) with Proxy and FreqUI enabled.
 
    ```yml
    version: '3'
@@ -151,7 +151,8 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
          --config /freqtrade/user_data/config.json
          --config /freqtrade/user_data/strategies/NostalgiaForInfinityX/pairlist-volume-binance-busd.json
          --config /freqtrade/user_data/strategies/NostalgiaForInfinityX/blacklist-binance.json
-         --config /freqtrade/user_data/freqstart_proxy_binance.json
+         --config /freqtrade/user_data/freqstart_frequi.json
+         --config /freqtrade/user_data/freqstart_binance.json
    ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -162,9 +163,17 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+`v3.0.6`
+* Implemented Tailscale (VPN) setup routine.
+* Implemented FreqUI setup routine based on Tailscale IP v4 incl. Openssl and secured Nginx ratelimit config.
+* Redesigned setup validation of all functions and console output.
+* Fixed strategy function jq error if strategy only has one file.
+* Removed debug option.
 
 `v3.0.5`
-* Fixed wrong response in update routine. 
+* Fixed wrong response in update routine.
+* Added setup option and related functions.
+* Removed unattended server upgrades from prerequisites.
 
 `v3.0.4`
 * Optimized project compose and quit routines incl. auto update.
