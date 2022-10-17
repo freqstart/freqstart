@@ -60,7 +60,7 @@ Freqstart provides an interactive setup guide for server security, Freqtrade inc
 
 Freqstart installs server packages and configurations tailored to the needs of Freqtrade and may overwrite existing installations and configurations. It is recommended to set it up in a new and clean environment!
 
-Packages: curl, jq, docker-ce, docker-compose, docker-ce-rootless-extras, systemd-container, uidmap, dbus-user-session
+Packages: curl, jq, openssl, docker-ce, docker-compose, docker-ce-rootless-extras, systemd-container, uidmap, dbus-user-session
 
 ### Recommended VPS
 
