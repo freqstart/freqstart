@@ -681,10 +681,15 @@ _fsProjects_() {
   local _crontabProjects=()
   local _crontabProjectsList=''
   
-  readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0) # find all projects in script root
+  # export docker host for crontab
+  export DOCKER_HOST=unix:///run/user/"${FS_USER_ID}"/docker.sock
+  
+  # find docker project files in script root
+  readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0)
   
   if (( ${#_projects[@]} )); then
-    if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then # quit projects
+    if [[ "${FS_OPTS_QUIT}" -eq 0 ]]; then
+      # quit projects
       _fsMsgTitle_ "PROJECTS: QUIT"
 
       for _project in "${_projects[@]}"; do
@@ -699,7 +704,8 @@ _fsProjects_() {
         _crontabProjectsList="${_crontabProjects[*]}"
         _fsCrontabModify_ "a" "${FS_AUTO_SCHEDULE}" "${FS_AUTO_SCRIPT}" $_crontabProjectsList
       fi
-    else # compose projects
+    else
+      # compose projects
       _fsMsgTitle_ "PROJECTS: COMPOSE"
       
       for _project in "${_projects[@]}"; do
@@ -718,7 +724,8 @@ _fsProjects_() {
       
       _fsMsgTitle_ "PROJECTS: VALIDATE"
 
-      if (( ${#_validateProjects[@]} )); then # validate projects
+      if (( ${#_validateProjects[@]} )); then
+        # validate projects
         _fsCdown_ 30 "for any errors..."
         
         for _validateProject in "${_validateProjects[@]}"; do
@@ -738,7 +745,8 @@ _fsProjects_() {
       fi
     fi
     
-    yes $'y' | docker network prune > /dev/null || true # clear orphaned networks
+    # clear orphaned networks
+    yes $'y' | docker network prune > /dev/null || true
   else
     _fsMsg_ "No projects found."
   fi
