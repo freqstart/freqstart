@@ -1263,7 +1263,7 @@ _fsSetupFrequi_() {
           rm -f "${FS_FREQUI_JSON}"
         fi
       else
-        _fsMsg_"Create login data:"
+        _fsMsg_ "Create login data:"
       fi
       
       _jwt="$(_fsRandomBase64UrlSafe_ 32)"
