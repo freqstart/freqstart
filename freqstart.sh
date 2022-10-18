@@ -1275,6 +1275,7 @@ _fsSetupFrequi_() {
       while true; do
         if [[ -f "${FS_NGINX_HTPASSWD}" ]]; then
           _fsMsg_ "Login for Nginx is created."
+          break
         else
           sh -c "echo -n ${_username}':' > ${FS_NGINX_HTPASSWD}"
           sh -c "openssl passwd ${_password} >> ${FS_NGINX_HTPASSWD}"
@@ -1285,6 +1286,7 @@ _fsSetupFrequi_() {
       while true; do
         if [[ -f "${FS_FREQUI_JSON}" ]]; then
           _fsMsg_ "FreqUI config is created."
+          break
         else
           _fsFileCreate_ "${FS_FREQUI_JSON}" \
           '{' \
