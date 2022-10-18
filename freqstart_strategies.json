@@ -12,7 +12,7 @@
   ],
   "DoesNothingStrategy": [
     "https://raw.githubusercontent.com/freqstart/strategies/main/DoesNothingStrategy/DoesNothingStrategy.py",
-    "https://raw.githubusercontent.com/freqstart/strategies/main/DoesNothingStrategy/DoesNothingStrategy.json"
+    "https://raw.githubusercontent.com/freqstart/strategies/main/DoesNothingStrategy/config.json"
   ],
   "MultiMA_TSL": [
     "https://raw.githubusercontent.com/stash86/MultiMA_TSL/main/user_data/strategies/MultiMA_TSL.py",
