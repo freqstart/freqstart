@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.6
+# FREQSTART v3.0.7
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -163,6 +163,10 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.7`
+* TBA
+
 `v3.0.6`
 * Implemented Tailscale (VPN) setup routine.
 * Implemented FreqUI setup routine based on Tailscale IP v4 incl. Openssl and secured Nginx ratelimit config.
