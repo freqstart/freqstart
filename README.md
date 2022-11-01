@@ -171,6 +171,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 `v3.0.7`
 * Replaced project name with project file name.
 * Moved script update to setup routine.
+* Custom strategies now completely replaces default if exist.
 
 `v3.0.6`
 * Implemented Tailscale (VPN) setup routine.
