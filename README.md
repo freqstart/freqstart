@@ -39,15 +39,15 @@ The following list of implemented strategies is in alphabetical order and does n
 
 Strategy | Author | Source
 --- | --- | ---
-`Cenderawasih_3` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
-`Cenderawasih_3_kucoin` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
-`DoesNothingStrategy` | Gert Wohlgemuth | -
-`MultiMA_TSL` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
-`MultiMA_TSL5` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
-`NASOSv4` | Rallipanos, pluxury | -
-`NASOSv5` | Rallipanos, pluxury | -
-`NostalgiaForInfinityNext_7_13_0` | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
-`NostalgiaForInfinityX` | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
+Cenderawasih_3 | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+Cenderawasih_3_kucoin | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+DoesNothingStrategy | Gert Wohlgemuth | -
+MultiMA_TSL | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+MultiMA_TSL5 | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+NASOSv4 | Rallipanos, pluxury | -
+NASOSv5 | Rallipanos, pluxury | -
+NostalgiaForInfinityNext_7_13_0 | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
+NostalgiaForInfinityX | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 
 `Help` expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
 
