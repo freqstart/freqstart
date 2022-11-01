@@ -7,13 +7,7 @@ See what has been changed: <a href="#changelog">Changelog</a>
 
 ## Setup & Docker-Manager for Freqtrade
 
-Freqstart simplifies the use of Freqtrade with Docker. Including a simple setup guide for Freqtrade,
-configurations and FreqUI with a secured SSL proxy and Tailscale (VPN). Freqstart also automatically
-downloads implemented strategies based on Docker project files and detects necessary updates.
-
-Freqstart is the combined public knowledge, based on best practice solutions, to run Freqtrade
-in the most secure environment possible. Every step can be done manually and even if you decide
-to remove Freqstart, you can start and stop your project files with native Docker commands.
+Freqstart simplifies the use of Freqtrade with Docker. Including a simple setup guide for Freqtrade, configurations and FreqUI with a secured SSL proxy and Tailscale (VPN). Freqstart also automatically downloads implemented strategies based on Docker project files and detects necessary updates.
 
 IF YOU ARE NOT FAMILIAR WITH FREQTRADE, PLEASE READ THE COMPLETE DOCUMENTATION FIRST ON: [www.freqtrade.io](https://www.freqtrade.io/)
 
@@ -60,13 +54,13 @@ Replace default strategies list with your own? Create `freqstart_strategies_cust
 <!-- GETTING STARTED -->
 ## Getting Started
 
-Freqstart provides an interactive setup guide for server security, Freqtrade incl. config creation, FreqUI, Binance- & Kucoin-Proxy routines.
+Freqstart is the combined public knowledge, based on best practice solutions, to run Freqtrade in the most secure environment possible. Every step can be done manually and even if you decide to remove Freqstart, you can start and stop your project files with native Docker commands.
 
 ### Prerequisites
 
 Freqstart installs server packages and configurations tailored to the needs of Freqtrade and may overwrite existing installations and configurations. It is recommended to set it up in a new and clean environment!
 
-Packages: curl, jq, openssl, docker-ce, docker-compose, docker-ce-rootless-extras, systemd-container, uidmap, dbus-user-session
+Packages: curl, dbus-user-session, docker-ce, docker-ce-rootless-extras, docker-compose, jq, openssl, systemd-container, tailscale, ufw, uidmap
 
 ### Recommended VPS
 
@@ -78,9 +72,10 @@ Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://ww
 
 #### Test VPS latency
 
-How to test latency to Binance exchange from your VPS (Ping will not work because Binance is using Cloudflare CDN):
-
-`time curl -X GET "https://api.binance.com/api/v3/exchangeInfo?symbol=BNBBTC"`
+   How to test latency to Binance exchange from your VPS:
+   ```sh
+   time curl -X GET "https://api.binance.com/api/v3/exchangeInfo?symbol=BNBBTC"
+   ```
 
 ### Setup `Freqstart`
 
