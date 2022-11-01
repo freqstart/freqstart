@@ -96,12 +96,6 @@ Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://ww
    ./freqstart.sh --setup
    ```
 
-### Update `Freqstart` script and strategies file
-
-   ```sh
-   freqstart --update
-   ```
-
 ### Start `Freqtrade` docker projects
 
    ```sh
