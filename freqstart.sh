@@ -702,7 +702,11 @@ _fsProjects_() {
     else
       # compose projects
       _fsMsgTitle_ "PROJECTS: COMPOSE"
-      
+
+      if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
+        _fsMsg_ "Custom strategies file active!"
+      fi
+
       for _project in "${_projects[@]}"; do
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
@@ -1544,18 +1548,16 @@ _fsStrategy_() {
   local _url=''
   local _path=''
   local _download=''
+  local _strategies="${FS_STRATEGIES_PATH}"
   
-  if [[ -f "${FS_STRATEGIES_PATH}" ]]; then
+  if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
+    _strategies="${FS_STRATEGIES_CUSTOM_PATH}"
+  fi
+  
+  if [[ -f "${_strategies}" ]]; then
     while read -r; do
     _urls+=( "$REPLY" )
     done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_PATH}")
-    
-    # add custom strategies from file
-    if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
-      while read -r; do
-      _urls+=( "$REPLY" )
-      done < <(jq -r ".${_name}[]?"' // empty' "${FS_STRATEGIES_CUSTOM_PATH}")
-    fi
         
     if (( ${#_urls[@]} )); then
       while read -r; do
@@ -1884,29 +1886,6 @@ _fsArrayIn_() {
   fi
 }
 
-_fsArrayShuffle_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _array=("${@}")
-  local _arrayTmp=''
-  local _i=''
-  local _size=''
-  local _max=''
-  local _rand=''
-  
-  # credit: https://mywiki.wooledge.org/BashFAQ/026
-  _size=${#_array[@]}
-  
-  for ((_i=_size-1; _i>0; _i--)); do
-    _max=$(( 32768 / (_i+1) * (_i+1) ))
-    while (( (_rand=RANDOM) >= _max )); do :; done
-    _rand=$(( _rand % (_i+1) ))
-    _arrayTmp=${_array[_i]} _array[_i]=${_array[_rand]} _array[_rand]=$_arrayTmp
-  done
-  
-  printf -- '%s\n' "${_array[@]}"
-}
-
 _fsCrontab_() {
   [[ $# -lt 2 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
@@ -2062,66 +2041,6 @@ _fsLoginDataPassword_() {
   local _password="${1}"
   # shellcheck disable=SC2005
   echo "$(cut -d':' -f2 <<< "${_password}")"
-}
-
-_fsIpPublic_() {
-  # only use https resolvers
-  local _resolvers=(
-  "api.ipify.org"
-  "checkip.amazonaws.com"
-  "corz.org/ip"
-  "icanhazip.com"
-  "ident.me"
-  "ifconfig.me"
-  "ipecho.net/plain"
-  "ipof.in/txt"
-  "ipinfo.io/ip"
-  "l2.io/ip"
-  "tnx.nl/ip"
-  )
-  local _resolversShuffle=()
-  local _resolver=''
-  local _ip=''
-  local _ipValid=''
-  local _ipCompare=''
-  
-  # shuffle ip resolvers
-  while read -r; do
-  _resolversShuffle+=( "$REPLY" )
-  done < <(_fsArrayShuffle_ "${_resolvers[@]}")
-  
-  for _resolver in "${_resolversShuffle[@]}"; do
-    # get public ip from https resolver
-    _ip="$(curl --connect-timeout 10 -s "https://${_resolver}" || true)"
-    
-    if [[ "$(_fsIpValidate_ "${_ip}")" -eq 0 ]]; then
-        # compare last valid ip with current resolver
-      if [[ -n "${_ipCompare}" ]] && [[ "${_ipCompare}" = "${_ip}" ]]; then
-        _ipValid="${_ip}"
-        break
-      fi
-      
-        # set ip to compare if valid
-      _ipCompare="${_ip}"
-    fi
-  done
-  
-  if [[ -n "${_ipValid}" ]]; then
-    echo "${_ipValid}"
-  else
-    _fsMsg_ 'No valid public IP (v4) found!'
-  fi
-}
-
-_fsIpValidate_() {
-  local _ip="${1:-}"
-  local _regex='^(([1-9]?[0-9]|1[0-9][0-9]|2([0-4][0-9]|5[0-5]))\.){3}([1-9]?[0-9]|1[0-9][0-9]|2([0-4][0-9]|5[0-5]))$'
-
-  if [[ "${_ip}" =~ $_regex ]]; then
-    echo 0
-  else
-    echo 1
-  fi
 }
 
 _fsOptions_() {
