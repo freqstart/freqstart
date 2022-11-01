@@ -51,7 +51,9 @@ Strategy | Author | Source
 
 `Help` expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
 
-`Custom` strategies create freqstart_strategies_custom.json in script root and add your own URLs from other sources.
+#### Custom Strategies
+
+Replace default strategies list with your own? Create `freqstart_strategies_custom.json` in script root and add your own URLs from other sources.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
