@@ -453,7 +453,6 @@ _fsProjectCompose_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _projectImages=1
   local _projectStrategies=1
   local _projectConfigs=1
@@ -490,11 +489,11 @@ _fsProjectCompose_() {
       # create docker network; credit: https://stackoverflow.com/a/59878917
       docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
 
-      docker compose -f "${_project}" -p "${_projectName}" up --no-start > /dev/null 2> /dev/null || true
+      docker compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
 
       while read -r; do
         _containers+=( "$REPLY" )
-      done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+      done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
       for _container in "${_containers[@]}"; do
         _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -538,9 +537,7 @@ _fsProjectRun_() {
   local _projectService="${2}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _projectImages=1
-  local _projectShell=''
   local _error=0
   
   if [[ -f "${_project}" ]]; then
@@ -549,7 +546,7 @@ _fsProjectRun_() {
     [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
     
     if [[ "${_error}" -eq 0 ]]; then
-      docker compose -f "${_project}" -p "${_projectName}" run --rm "${_projectService}"
+      docker compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
     fi
   else
     _fsMsgError_ "File not found: ${_projectFile}"
@@ -562,7 +559,6 @@ _fsProjectValidate_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _containers=()
   local _container=''
   local _containerActive=''
@@ -583,7 +579,7 @@ _fsProjectValidate_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -637,7 +633,6 @@ _fsProjectQuit_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _containers=()
   local _container=''
   local _containerName=''
@@ -647,7 +642,7 @@ _fsProjectQuit_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
   
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -757,7 +752,9 @@ _fsProjects_() {
 ######################################################################
 
 _fsSetup_() {
+  
   _fsSetupPrerequisites_
+  _fsSetupUpdate_
   _fsSetupUser_
   _fsSetupDocker_
   _fsSetupFreqtrade_
@@ -768,11 +765,11 @@ _fsSetup_() {
   _fsSetupFinish_
 }
 
-_fsUpdate_() {
+_fsSetupUpdate_() {
   local _script=''
-  local _strategies=''
+  local _strategies=0
   
-  _fsMsgTitle_ "UPDATE"
+  _fsMsgTitle_ "SETUP: UPDATE"
   
   if [[ "$(_fsCaseConfirmation_ "Update script and strategy file?")" -eq 0 ]]; then
     _script="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
@@ -2131,7 +2128,7 @@ _fsOptions_() {
   local -r _args=("${@}")
   local _opts
   
-  _opts="$(getopt --options q,r,s,u --long auto:,quit,reset,setup,update -- "${_args[@]}" 2> /dev/null)" || {
+  _opts="$(getopt --options q,r,s --long auto:,quit,reset,setup -- "${_args[@]}" 2> /dev/null)" || {
     _fsMsgError_ "Unkown or missing argument."
   }
   
@@ -2154,10 +2151,6 @@ _fsOptions_() {
         ;;
       --setup|-s)
         FS_OPTS_SETUP=0
-        break
-        ;;
-      --update|-u)
-        FS_OPTS_UPDATE=0
         break
         ;;
       --)
@@ -2191,8 +2184,6 @@ _fsOptions_ "${@}"
 
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsReset_
-elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
-  _fsUpdate_
 elif [[ "${FS_OPTS_SETUP}" -eq 0 ]]; then
   _fsSetup_
 elif [[ "$(_fsSymlinkValidate_ "${FS_SYMLINK}")" -eq 0 ]];then
