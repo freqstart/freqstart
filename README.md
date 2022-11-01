@@ -9,7 +9,7 @@ See what has been changed: <a href="#changelog">Changelog</a>
 
 Freqstart simplifies the use of Freqtrade with Docker. Including a simple setup guide for Freqtrade,
 configurations and FreqUI with a secured SSL proxy and Tailscale (VPN). Freqstart also automatically
-installs implemented strategies based on Docker Compose files and detects necessary updates.
+downloads implemented strategies based on Docker project files and detects necessary updates.
 
 Freqstart is the combined public knowledge, based on best practice solutions, to run Freqtrade
 in the most secure environment possible. Every step can be done manually and even if you decide
@@ -19,7 +19,9 @@ IF YOU ARE NOT FAMILIAR WITH FREQTRADE, PLEASE READ THE COMPLETE DOCUMENTATION F
 
 For `Freqstart` related questions, use die github issue list: [open issues](https://github.com/freqstart/freqstart/issues)
 
-For `Freqtrade` related questions, join the official discord: https://discord.gg/g549bRAy
+For `Freqtrade` related questions, join the official discord: [discord.gg/g549bRAy](https://discord.gg/g549bRAy)
+
+Best `Crypto` portfolio tracker: [coinstats.app](https://invite.coinstats.app/r?i=pJ7wKJ1635067130440)
 
 ### Features
 
@@ -35,19 +37,21 @@ For `Freqtrade` related questions, join the official discord: https://discord.gg
 
 The following list of implemented strategies is in alphabetical order and does not represent any recommendation:
 
-* `Cenderawasih_3` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
-* `Cenderawasih_3_kucoin` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
-* `DoesNothingStrategy` (Author: Gert Wohlgemuth)
-* `MultiMA_TSL` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
-* `MultiMA_TSL5` (Author: stash86, Source: https://github.com/stash86/MultiMA_TSL/)
-* `NASOSv4` (Author: Rallipanos, pluxury)
-* `NASOSv5` (Author: Rallipanos, pluxury)
-* `NostalgiaForInfinityNext_7_13_0` (Author: iterativ, Source: https://github.com/iterativv/NostalgiaForInfinity)
-* `NostalgiaForInfinityX` (Author: iterativ, Source: https://github.com/iterativv/NostalgiaForInfinity)
+Strategy | Author | Source
+--- | --- | ---
+`Cenderawasih_3` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+`Cenderawasih_3_kucoin` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+`DoesNothingStrategy` | Gert Wohlgemuth | -
+`MultiMA_TSL` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+`MultiMA_TSL5` | stash86 | [Link](https://github.com/stash86/MultiMA_TSL/)
+`NASOSv4` | Rallipanos, pluxury | -
+`NASOSv5` | Rallipanos, pluxury | -
+`NostalgiaForInfinityNext_7_13_0` | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
+`NostalgiaForInfinityX` | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 
-Help expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/stable/freqstart_strategies.json)
+`Help` expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
 
-Optional: Add freqstart_strategies_custom.json to script root and add your own URLs from other sources.
+`Custom` strategies create freqstart_strategies_custom.json in script root and add your own URLs from other sources.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -66,7 +70,7 @@ Packages: curl, jq, openssl, docker-ce, docker-compose, docker-ce-rootless-extra
 
 If you take crypto bot trading seriously, never use a VPS with only one core. Freqtrade doesn't use multithreading, but with CPU-heavy strategies like NFIX, your VPS would be at almost 100% capacity every time. It is also recommended to add 1 CPU core per bot. So if you are running 3 different strategies, you should have at least 4 CPU cores to have some buffer for other system tasks. Additionally, install bashtop ($ sudo apt install bashtop), set the timing to 30,000ms and see how long it takes your VPS to finish calculating a new trade candle from 100% to below 20% within 10 bars (= 5 minutes) per core. A good benchmark for NFIX would be 2 minutes, which equals 4 bars. Anything higher or consistently above 90% risks losing you money or never getting a trade entry. Don't be too cheap on your way to the moon, or you'll probably end up in goblin town anyway.
 
-HostHatch (NVMe 4GB & 16GB / Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
+HostHatch (NVMe 4GB & 16GB / Tokyo, Hong Kong / Ubuntu LTS): [hosthatch.com](https://cloud.hosthatch.com/a/2781)
 
 Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
 
@@ -92,7 +96,7 @@ How to test latency to Binance exchange from your VPS (Ping will not work becaus
    ```
    Setup `freqstart`
    ```sh
-   ./freqstart.sh
+   ./freqstart.sh --setup
    ```
 
 ### Update `Freqstart` script and strategies file
@@ -165,7 +169,8 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 ### Changelog
 
 `v3.0.7`
-* TBA
+* Replaced project name with project file name.
+* Moved script update to setup routine.
 
 `v3.0.6`
 * Implemented Tailscale (VPN) setup routine.
