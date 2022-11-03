@@ -163,6 +163,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 * Replaced project name with project file name.
 * Moved script update to setup routine.
 * Custom strategies now completely replaces default if exist.
+* Simplified docker version compare function.
 
 `v3.0.6`
 * Implemented Tailscale (VPN) setup routine.
