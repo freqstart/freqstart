@@ -21,7 +21,7 @@ set -o errtrace
 set -o nounset
 set -o pipefail
 
-readonly FS_VERSION='v3.0.7'
+readonly FS_VERSION='v3.0.8'
 
 readonly FS_NAME="freqstart"
 readonly FS_TMP="/tmp/${FS_NAME}"
