@@ -21,7 +21,7 @@ set -o errtrace
 set -o nounset
 set -o pipefail
 
-readonly FS_VERSION='v3.0.6'
+readonly FS_VERSION='v3.0.7'
 
 readonly FS_NAME="freqstart"
 readonly FS_TMP="/tmp/${FS_NAME}"
@@ -54,8 +54,7 @@ readonly FS_PROXY_KUCOIN_YML="${FS_DIR}/${FS_PROXY_KUCOIN}.yml"
 readonly FS_PROXY_KUCOIN_IP='172.35.0.252'
 
 readonly FS_NGINX="${FS_NAME}_nginx"
-readonly FS_NGINX_YML="${FS_DIR}/${FS_NAME}_nginx.yml"
-
+readonly FS_NGINX_YML="${FS_DIR}/${FS_NGINX}.yml"
 readonly FS_NGINX_DIR="${FS_DIR}/nginx"
 readonly FS_NGINX_CONF="${FS_NGINX_DIR}/conf/frequi.conf"
 readonly FS_NGINX_HTPASSWD="${FS_NGINX_DIR}/conf/.htpasswd"
@@ -68,9 +67,7 @@ readonly FS_STRATEGIES="${FS_NAME}_strategies"
 readonly FS_STRATEGIES_FILE="${FS_STRATEGIES}.json"
 readonly FS_STRATEGIES_URL="${FS_GIT}/${FS_STRATEGIES_FILE}"
 readonly FS_STRATEGIES_PATH="${FS_DIR}/${FS_STRATEGIES_FILE}"
-readonly FS_STRATEGIES_CUSTOM="${FS_STRATEGIES}_custom"
-readonly FS_STRATEGIES_CUSTOM_FILE="${FS_STRATEGIES_CUSTOM}.json"
-readonly FS_STRATEGIES_CUSTOM_PATH="${FS_DIR}/${FS_STRATEGIES_CUSTOM_FILE}"
+readonly FS_STRATEGIES_CUSTOM_PATH="${FS_DIR}/${FS_STRATEGIES}_custom.json"
 
 readonly FS_REGEX="(${FS_PROXY_KUCOIN}|${FS_PROXY_BINANCE}|${FS_NGINX}|${FS_FREQUI})"
 
@@ -84,50 +81,12 @@ trap '_fsErr_ "${FUNCNAME:-.}" ${LINENO}' ERR
 # DOCKER
 ######################################################################
 
-_fsDockerVersionCompare_() {
+_fsDockerVersion_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _dockerImage="${1}"
   local _dockerVersionLocal=''
   local _dockerVersionHub=''
-  
-  _dockerVersionHub="$(_fsDockerVersionHub_ "${_dockerImage}")"
-  _dockerVersionLocal="$(_fsDockerVersionLocal_ "${_dockerImage}")"
-  
-  if [[ -z "${_dockerVersionHub}" ]]; then
-    # unkown
-    echo 2
-  else
-    if [[ "${_dockerVersionHub}" = "${_dockerVersionLocal}" ]]; then
-      # equal
-      echo 0
-    else
-      # greater
-      echo 1
-    fi
-  fi
-}
-
-_fsDockerVersionLocal_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _dockerImage="${1}"
-  local _dockerVersionLocal=''
-  
-  if [[ -n "$(docker images -q "${_dockerImage}")" ]]; then
-    _dockerVersionLocal="$(docker inspect --format='{{index .RepoDigests 0}}' "${_dockerImage}" \
-    | sed 's/.*@//')"
-    
-    if [[ -n "${_dockerVersionLocal}" ]]; then
-      echo "${_dockerVersionLocal}"
-    fi
-  fi
-}
-
-_fsDockerVersionHub_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _dockerImage="${1}"
   local _dockerRepo="${_dockerImage%:*}"
   local _dockerTag="${_dockerImage##*:}"
   local _dockerUrl=''
@@ -137,15 +96,18 @@ _fsDockerVersionHub_() {
   local _acceptM="application/vnd.docker.distribution.manifest.v2+json"
   local _acceptML="application/vnd.docker.distribution.manifest.list.v2+json"
   
+  # docker hub image version
   _dockerUrl="https://registry-1.docker.io/v2/${_dockerRepo}/manifests/${_dockerTag}"
   _dockerName="${FS_NAME}"'_'"$(echo "${_dockerRepo}" | sed "s,\/,_,g" | sed "s,\-,_,g")"
   _dockerManifest="${FS_TMP}/${FS_HASH}_${_dockerName}_${_dockerTag}.md"
   _token="$(curl --connect-timeout 10 -s "https://auth.docker.io/token?scope=repository:${_dockerRepo}:pull&service=registry.docker.io"  | jq -r '.token' || true)"
-  
+
   if [[ -n "${_token}" ]]; then
     curl --connect-timeout 10 -s --header "Accept: ${_acceptM}" --header "Accept: ${_acceptML}" --header "Authorization: Bearer ${_token}" \
     -o "${_dockerManifest}" -I -s -L "${_dockerUrl}" \
-    || _fsMsgError_ "Download failed: ${_dockerUrl}"
+    || true
+  else
+    _fsMsgError_ 'Cannot retrieve docker token.'
   fi
   
   if [[ -f "${_dockerManifest}" ]]; then    
@@ -154,61 +116,24 @@ _fsDockerVersionHub_() {
     | sed 's,etag: ,,' \
     || true)"
     
-    if [[ -n "${_dockerVersionHub}" ]]; then
-      echo "${_dockerVersionHub}"
-    else
+    if [[ -z "${_dockerVersionHub}" ]]; then
       _fsMsgError_ 'Cannot retrieve docker manifest.'
     fi
   else
     _fsMsgError_ 'Cannot connect to docker hub.'
   fi
-}
+  
+  # docker local image version
+  if [[ -n "$(docker images -q "${_dockerImage}")" ]]; then
+    _dockerVersionLocal="$(docker inspect --format='{{index .RepoDigests 0}}' "${_dockerImage}" \
+    | sed 's/.*@//')"
+  fi
 
-_fsDockerVersionImage_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _dockerImage="${1}"
-  local _dockerCompare=''
-  local _dockerStatus=2
-  local _dockerVersionLocal=''
-  
-  _dockerCompare="$(_fsDockerVersionCompare_ "${_dockerImage}")"
-  
-  if [[ "${_dockerCompare}" -eq 0 ]]; then
-    # docker hub image version is equal
-    _dockerStatus=0
-  elif [[ "${_dockerCompare}" -eq 1 ]]; then
-    # docker hub image version is greater
-    _dockerVersionLocal="$(_fsDockerVersionLocal_ "${_dockerImage}")"
+  if [[ ! "${_dockerVersionHub}" = "${_dockerVersionLocal}" ]]; then
+    docker pull "${_dockerImage}" > /dev/null
     
-    if [[ -n "${_dockerVersionLocal}" ]]; then
-      # update from docker hub      
-      docker pull "${_dockerImage}"
-      if [[ "$(_fsDockerVersionCompare_ "${_dockerImage}")" -eq 0 ]]; then
-        _dockerStatus=1
-      fi
-    else
-      # install from docker hub
-      docker pull "${_dockerImage}"
-      
-      if [[ "$(_fsDockerVersionCompare_ "${_dockerImage}")" -eq 0 ]]; then
-        _dockerStatus=1
-      fi
-    fi
-  elif [[ "${_dockerCompare}" -eq 2 ]]; then
-    # docker hub image version is unknown
-    if [[ -n "$(docker images -q "${_dockerImage}")" ]]; then
-      _dockerStatus=0
-    fi
-  fi
-  
-  if [[ "${_dockerStatus}" -eq 2 ]]; then
-      _fsMsgError_ "Image not found: ${_dockerImage}"
-  else
-    _dockerVersionLocal="$(_fsDockerVersionLocal_ "${_dockerImage}")"
-    # return local version docker image digest
-    echo "${_dockerVersionLocal}"
-  fi
+    _fsMsg_ "Latest docker image installed for: ${_dockerImage}"
+  fi  
 }
 
 _fsDockerContainerPs_() {
@@ -292,8 +217,6 @@ _fsProjectImages_() {
   local _ymlImages=()
   local _ymlImagesDeduped=()
   local _ymlImage=''
-  local _dockerImage=''
-  local _error=0
   
   # credit: https://stackoverflow.com/a/39612060
   while read -r; do
@@ -301,7 +224,8 @@ _fsProjectImages_() {
   done < <(grep -vE '^\s+#' "${_project}" \
   | grep 'image:' \
   | sed "s,\s,,g" \
-  | sed "s,image:,,g" || true)
+  | sed "s,image:,,g" \
+  || true)
   
   if (( ${#_ymlImages[@]} )); then
     while read -r; do
@@ -309,20 +233,8 @@ _fsProjectImages_() {
     done < <(_fsArrayDedupe_ "${_ymlImages[@]}")
     
     for _ymlImage in "${_ymlImagesDeduped[@]}"; do
-      _dockerImage="$(_fsDockerVersionImage_ "${_ymlImage}")"
-      
-      if [[ -z "${_dockerImage}" ]]; then
-        _error=$((_error+1))
-      fi
+      _fsDockerVersion_ "${_ymlImage}"
     done
-    
-    if [[ "${_error}" -eq 0 ]]; then
-      echo 0
-    else
-      echo 1
-    fi
-  else
-    echo 1
   fi
 }
 
@@ -382,6 +294,7 @@ _fsProjectStrategies_() {
       for _dir in "${_dirsDedupe[@]}"; do
         _path="${_dir}/${_strategyDedupe}.py"
         _file="${_path##*/}"
+        
         if [[ -f "${_path}" ]]; then
           _pathFound=0
           break
@@ -453,8 +366,6 @@ _fsProjectCompose_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
-  local _projectImages=1
   local _projectStrategies=1
   local _projectConfigs=1
   local _containers=()
@@ -463,6 +374,10 @@ _fsProjectCompose_() {
   local _containerName=''
   local _containerCmd=''
   local _containerLogfile=''
+  local _containersPs=()
+  local _containerPs=''
+
+  local _containerInactive=0
   local _compose=1
   local _error=0
 
@@ -480,9 +395,8 @@ _fsProjectCompose_() {
   if [[ "${_compose}" -eq 0 ]]; then
     _projectStrategies="$(_fsProjectStrategies_ "${_project}")"
     _projectConfigs="$(_fsProjectConfigs_ "${_project}")"
-    _projectImages="$(_fsProjectImages_ "${_project}")"
+    _fsProjectImages_ "${_project}"
     
-    [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
     [[ "${_projectStrategies}" -eq 1 ]] && _error=$((_error+1))
     [[ "${_projectConfigs}" -eq 1 ]] && _error=$((_error+1))
     
@@ -490,11 +404,11 @@ _fsProjectCompose_() {
       # create docker network; credit: https://stackoverflow.com/a/59878917
       docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
 
-      docker compose -f "${_project}" -p "${_projectName}" up --no-start > /dev/null 2> /dev/null || true
+      docker compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
 
       while read -r; do
         _containers+=( "$REPLY" )
-      done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+      done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
       for _container in "${_containers[@]}"; do
         _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -538,19 +452,11 @@ _fsProjectRun_() {
   local _projectService="${2}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
-  local _projectImages=1
-  local _projectShell=''
-  local _error=0
   
   if [[ -f "${_project}" ]]; then
-    _projectImages="$(_fsProjectImages_ "${_project}")"
+    _fsProjectImages_ "${_project}"
     
-    [[ "${_projectImages}" -eq 1 ]] && _error=$((_error+1))
-    
-    if [[ "${_error}" -eq 0 ]]; then
-      docker compose -f "${_project}" -p "${_projectName}" run --rm "${_projectService}"
-    fi
+    docker compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
   else
     _fsMsgError_ "File not found: ${_projectFile}"
   fi
@@ -562,7 +468,6 @@ _fsProjectValidate_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _containers=()
   local _container=''
   local _containerActive=''
@@ -583,7 +488,7 @@ _fsProjectValidate_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -637,7 +542,6 @@ _fsProjectQuit_() {
   local _project="${1}"
   local _projectFile="${_project##*/}"
   local _projectFileName="${_projectFile%.*}"
-  local _projectName="${_projectFileName//\-/\_}"
   local _containers=()
   local _container=''
   local _containerName=''
@@ -647,7 +551,7 @@ _fsProjectQuit_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectName}" ps -q)
+  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
   
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -707,7 +611,11 @@ _fsProjects_() {
     else
       # compose projects
       _fsMsgTitle_ "PROJECTS: COMPOSE"
-      
+
+      if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
+        _fsMsg_ "Custom strategies file active!"
+      fi
+
       for _project in "${_projects[@]}"; do
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
@@ -757,7 +665,9 @@ _fsProjects_() {
 ######################################################################
 
 _fsSetup_() {
+  
   _fsSetupPrerequisites_
+  _fsSetupUpdate_
   _fsSetupUser_
   _fsSetupDocker_
   _fsSetupFreqtrade_
@@ -768,11 +678,11 @@ _fsSetup_() {
   _fsSetupFinish_
 }
 
-_fsUpdate_() {
+_fsSetupUpdate_() {
   local _script=''
-  local _strategies=''
+  local _strategies=0
   
-  _fsMsgTitle_ "UPDATE"
+  _fsMsgTitle_ "SETUP: UPDATE"
   
   if [[ "$(_fsCaseConfirmation_ "Update script and strategy file?")" -eq 0 ]]; then
     _script="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
@@ -1547,18 +1457,16 @@ _fsStrategy_() {
   local _url=''
   local _path=''
   local _download=''
+  local _strategies="${FS_STRATEGIES_PATH}"
   
-  if [[ -f "${FS_STRATEGIES_PATH}" ]]; then
+  if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
+    _strategies="${FS_STRATEGIES_CUSTOM_PATH}"
+  fi
+  
+  if [[ -f "${_strategies}" ]]; then
     while read -r; do
     _urls+=( "$REPLY" )
     done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_PATH}")
-    
-    # add custom strategies from file
-    if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
-      while read -r; do
-      _urls+=( "$REPLY" )
-      done < <(jq -r ".${_name}[]?"' // empty' "${FS_STRATEGIES_CUSTOM_PATH}")
-    fi
         
     if (( ${#_urls[@]} )); then
       while read -r; do
@@ -1887,29 +1795,6 @@ _fsArrayIn_() {
   fi
 }
 
-_fsArrayShuffle_() {
-  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _array=("${@}")
-  local _arrayTmp=''
-  local _i=''
-  local _size=''
-  local _max=''
-  local _rand=''
-  
-  # credit: https://mywiki.wooledge.org/BashFAQ/026
-  _size=${#_array[@]}
-  
-  for ((_i=_size-1; _i>0; _i--)); do
-    _max=$(( 32768 / (_i+1) * (_i+1) ))
-    while (( (_rand=RANDOM) >= _max )); do :; done
-    _rand=$(( _rand % (_i+1) ))
-    _arrayTmp=${_array[_i]} _array[_i]=${_array[_rand]} _array[_rand]=$_arrayTmp
-  done
-  
-  printf -- '%s\n' "${_array[@]}"
-}
-
 _fsCrontab_() {
   [[ $# -lt 2 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
@@ -2067,71 +1952,11 @@ _fsLoginDataPassword_() {
   echo "$(cut -d':' -f2 <<< "${_password}")"
 }
 
-_fsIpPublic_() {
-  # only use https resolvers
-  local _resolvers=(
-  "api.ipify.org"
-  "checkip.amazonaws.com"
-  "corz.org/ip"
-  "icanhazip.com"
-  "ident.me"
-  "ifconfig.me"
-  "ipecho.net/plain"
-  "ipof.in/txt"
-  "ipinfo.io/ip"
-  "l2.io/ip"
-  "tnx.nl/ip"
-  )
-  local _resolversShuffle=()
-  local _resolver=''
-  local _ip=''
-  local _ipValid=''
-  local _ipCompare=''
-  
-  # shuffle ip resolvers
-  while read -r; do
-  _resolversShuffle+=( "$REPLY" )
-  done < <(_fsArrayShuffle_ "${_resolvers[@]}")
-  
-  for _resolver in "${_resolversShuffle[@]}"; do
-    # get public ip from https resolver
-    _ip="$(curl --connect-timeout 10 -s "https://${_resolver}" || true)"
-    
-    if [[ "$(_fsIpValidate_ "${_ip}")" -eq 0 ]]; then
-        # compare last valid ip with current resolver
-      if [[ -n "${_ipCompare}" ]] && [[ "${_ipCompare}" = "${_ip}" ]]; then
-        _ipValid="${_ip}"
-        break
-      fi
-      
-        # set ip to compare if valid
-      _ipCompare="${_ip}"
-    fi
-  done
-  
-  if [[ -n "${_ipValid}" ]]; then
-    echo "${_ipValid}"
-  else
-    _fsMsg_ 'No valid public IP (v4) found!'
-  fi
-}
-
-_fsIpValidate_() {
-  local _ip="${1:-}"
-  local _regex='^(([1-9]?[0-9]|1[0-9][0-9]|2([0-4][0-9]|5[0-5]))\.){3}([1-9]?[0-9]|1[0-9][0-9]|2([0-4][0-9]|5[0-5]))$'
-
-  if [[ "${_ip}" =~ $_regex ]]; then
-    echo 0
-  else
-    echo 1
-  fi
-}
-
 _fsOptions_() {
   local -r _args=("${@}")
   local _opts
   
-  _opts="$(getopt --options q,r,s,u --long auto:,quit,reset,setup,update -- "${_args[@]}" 2> /dev/null)" || {
+  _opts="$(getopt --options q,r,s --long auto:,quit,reset,setup -- "${_args[@]}" 2> /dev/null)" || {
     _fsMsgError_ "Unkown or missing argument."
   }
   
@@ -2156,10 +1981,6 @@ _fsOptions_() {
         FS_OPTS_SETUP=0
         break
         ;;
-      --update|-u)
-        FS_OPTS_UPDATE=0
-        break
-        ;;
       --)
         shift
         break
@@ -2182,7 +2003,6 @@ FS_OPTS_AUTO=1
 FS_OPTS_QUIT=1
 FS_OPTS_RESET=1
 FS_OPTS_SETUP=1
-FS_OPTS_UPDATE=1
 
 FS_ARCHITECTURE="$(_fsArchitecture_)"
 FS_ARGS_AUTO=''
@@ -2191,8 +2011,6 @@ _fsOptions_ "${@}"
 
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
   _fsReset_
-elif [[ "${FS_OPTS_UPDATE}" -eq 0 ]]; then
-  _fsUpdate_
 elif [[ "${FS_OPTS_SETUP}" -eq 0 ]]; then
   _fsSetup_
 elif [[ "$(_fsSymlinkValidate_ "${FS_SYMLINK}")" -eq 0 ]];then
