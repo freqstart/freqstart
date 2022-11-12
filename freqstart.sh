@@ -665,9 +665,7 @@ _fsProjects_() {
 ######################################################################
 
 _fsSetup_() {
-  
   _fsSetupPrerequisites_
-  _fsSetupUpdate_
   _fsSetupUser_
   _fsSetupDocker_
   _fsSetupFreqtrade_
@@ -676,33 +674,6 @@ _fsSetup_() {
   _fsSetupTailscale_
   _fsSetupFrequi_
   _fsSetupFinish_
-}
-
-_fsSetupUpdate_() {
-  local _script=''
-  local _strategies=0
-  
-  _fsMsgTitle_ "SETUP: UPDATE"
-  
-  if [[ "$(_fsCaseConfirmation_ "Update script and strategy file?")" -eq 0 ]]; then
-    _script="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
-    _strategies="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}")"
-    
-    if [[ "${_script}" -eq 1 ]]; then
-      _fsMsgSuccess_ "Updated to newest version: ${FS_STRATEGIES_PATH##*/}"
-      sudo chmod +x "${FS_PATH}"
-    else
-      _fsMsg_ "Already latest version: ${FS_STRATEGIES_PATH##*/}"
-    fi
-    
-    if [[ "${_strategies}" -eq 1 ]]; then
-      _fsMsgSuccess_ "Updated to newest version: ${FS_PATH##*/}"
-    else
-      _fsMsg_ "Already latest version: ${FS_PATH##*/}"
-    fi
-  else
-    _fsMsg_ "Skipping..."
-  fi
 }
 
 _fsSetupUser_() {
@@ -1466,7 +1437,7 @@ _fsStrategy_() {
   if [[ -f "${_strategies}" ]]; then
     while read -r; do
     _urls+=( "$REPLY" )
-    done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_PATH}")
+    done < <(jq -r ".${_name}[]?" "${FS_STRATEGIES_PATH}")
         
     if (( ${#_urls[@]} )); then
       while read -r; do
