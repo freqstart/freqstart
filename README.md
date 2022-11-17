@@ -165,6 +165,8 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 `v3.0.8`
 * Fixed setup routine endless loop
 * Fixed missing variable in docker reset routine
+* Added active tailscale validation to ufw config routine
+* Fixed frequi setup error when tailscale is not installed
 
 `v3.0.7`
 * Replaced project name with project file name.
