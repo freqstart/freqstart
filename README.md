@@ -78,7 +78,10 @@ Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://ww
    ```
 
 ### Setup `Freqstart`
-
+   (Oracle Linux)
+   ```sh
+   sudo yum install git
+   ```
    Clone the repo
    ```sh
    git clone https://github.com/freqstart/freqstart.git
@@ -160,7 +163,8 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 ### Changelog
 
 `v3.0.8`
-* TBA
+* Fixed setup routine endless loop
+* Fixed missing variable in docker reset routine
 
 `v3.0.7`
 * Replaced project name with project file name.
