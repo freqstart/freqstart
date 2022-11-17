@@ -1076,29 +1076,30 @@ _fsSetupTailscale_() {
       fi
     else
       _fsMsg_ "Tailscale is installed: $(tailscale ip -4)"
-      break
-    fi
-  done
-
-  while true; do
-    if ! sudo ufw status | grep -q "tailscale0"; then
-      if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale (recommended)?")" -eq 0 ]]; then
-        # ufw allow access over tailscale
-        sudo ufw --force reset > /dev/null
-        sudo ufw allow in on tailscale0 > /dev/null
-        sudo ufw allow 41641/udp > /dev/null
-        sudo ufw default deny incoming > /dev/null
-        sudo ufw default allow outgoing > /dev/null
-        sudo ufw --force enable > /dev/null
-        sudo service ssh restart
-      else
-        _fsMsg_ "Skipping..."
-        break
-      fi
-    else
-      _fsMsg_ "Access is restricted to Tailscale."
-      _fsMsg_ "Disable key expiration (recommended):"
-      _fsMsg_ "https://tailscale.com/kb/1028/key-expiry/"
+      
+      while true; do
+        if ! sudo ufw status | grep -q "tailscale0"; then
+          if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale (recommended)?")" -eq 0 ]]; then
+            # ufw allow access over tailscale
+            sudo ufw --force reset > /dev/null
+            sudo ufw allow in on tailscale0 > /dev/null
+            sudo ufw allow 41641/udp > /dev/null
+            sudo ufw default deny incoming > /dev/null
+            sudo ufw default allow outgoing > /dev/null
+            sudo ufw --force enable > /dev/null
+            sudo service ssh restart
+          else
+            _fsMsg_ "Skipping..."
+            break
+          fi
+        else
+          _fsMsg_ "Access is restricted to tailscale."
+          _fsMsg_ "Disable key expiration (recommended):"
+          _fsMsg_ "https://tailscale.com/kb/1028/key-expiry/"
+          break
+        fi
+      done
+      
       break
     fi
   done
@@ -1107,7 +1108,7 @@ _fsSetupTailscale_() {
 # FREQUI
 
 _fsSetupFrequi_() {
-  local _tailscaleIp="$(tailscale ip -4 2> /dev/null)"
+  local _tailscaleIp="$(tailscale ip -4 2> /dev/null || true)"
   local _sysctl="${FS_NGINX_DIR}/99-${FS_NAME}.conf"
   local _sysctlSymlink="/etc/sysctl.d/${_sysctl##*/}"
   local _jwt=''
