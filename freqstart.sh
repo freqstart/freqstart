@@ -199,7 +199,6 @@ _fsReset_() {
   
   if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
     _fsCrontabRemove_ "${FS_AUTO_SCRIPT}"
-    _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
     
     # credit: https://stackoverflow.com/a/69921248
     docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
@@ -404,11 +403,11 @@ _fsProjectCompose_() {
       # create docker network; credit: https://stackoverflow.com/a/59878917
       docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
 
-      docker compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
+      docker-compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
 
       while read -r; do
         _containers+=( "$REPLY" )
-      done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+      done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
       for _container in "${_containers[@]}"; do
         _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -431,8 +430,11 @@ _fsProjectCompose_() {
           _fsMsg_ "Starting container: ${_containerName}"
           docker start "${_containerName}" > /dev/null
         else
-          _fsMsg_ "Restarting container: ${_containerName}"
-          docker restart "${_containerName}" > /dev/null
+          if [[ "$(_fsCaseConfirmation_ "Restart container: ${_containerName}")" -eq 0 ]]; then
+            docker restart "${_containerName}" > /dev/null
+          else
+            _fsMsg_ "Skipping..."
+          fi
         fi
       done
       
@@ -456,7 +458,7 @@ _fsProjectRun_() {
   if [[ -f "${_project}" ]]; then
     _fsProjectImages_ "${_project}"
     
-    docker compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
+    docker-compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
   else
     _fsMsgError_ "File not found: ${_projectFile}"
   fi
@@ -488,7 +490,7 @@ _fsProjectValidate_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+  done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -551,7 +553,7 @@ _fsProjectQuit_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+  done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
   
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -751,12 +753,13 @@ _fsSetupUser_() {
       rm -rf "${FS_TMP}"
       sudo rm -f "${FS_SYMLINK}"
       
-      _fsMsg_ "#"
-      _fsMsg_ "# CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE}"
-      _fsMsg_ "#"
-      
       rm -f "${FS_STRATEGIES_PATH}"
       rm -f "${FS_PATH}"
+      
+      _fsMsg_ "#"
+      _fsMsg_ "# CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE} --setup"
+      _fsMsg_ "#"
+
       sudo machinectl shell "${_userTmp}@" # machinectl is needed to set $XDG_RUNTIME_DIR properly
       exit 0 # force exit needed
     else
@@ -765,6 +768,7 @@ _fsSetupUser_() {
   else
     while true; do
       if ! sudo grep -q "${_userSudoer}" "${_userSudoerFile}" 2> /dev/null; then
+        _fsMsg_ "Activating sudo for user: ${FS_USER}"
         echo "${_userSudoer}" | sudo tee "${_userSudoerFile}" > /dev/null
       else
         _fsMsg_ "Sudo is active for user: ${FS_USER}"
@@ -784,6 +788,7 @@ _fsSetupPrerequisites_() {
   "systemd-container"
   "uidmap"
   "dbus-user-session"
+  "docker-compose"
   )
   local _pkg=''
   local _pkgsSetup=()
@@ -803,6 +808,8 @@ _fsSetupPrerequisites_() {
 
   # install and validate all required packages
   while true; do
+    _pkgsSetup=()
+    
     for _pkg in "${_pkgs[@]}"; do
       if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
         _pkgsSetup+=("${_pkg}")
@@ -826,25 +833,34 @@ _fsSetupDocker_() {
   local _userBashrc="$(getent passwd "${FS_USER}" | cut -d: -f6)/.bashrc"
   local _getDocker="${FS_DIR}/get-docker.sh"
   local _getDockerUrl="https://get.docker.com/rootless"
+  local _count=0
 
   _fsMsgTitle_ "SETUP: DOCKER (ROOTLESS)"
 
   # validate if linger is set for current user
   while true; do
     if ! docker info 2> /dev/null | grep -q 'rootless'; then
-      sudo systemctl stop docker.socket docker.service || true
-      sudo systemctl disable --now docker.socket docker.service || true
-      sudo rm /var/run/docker.sock || true
+      [[ $_count -gt 0 ]] && _fsMsgError_ "Error while installing docker (rootless)."
+
+      _fsMsg_ "Installing docker..."
       
-      if [[ "$(_fsDownload_ "${_getDockerUrl}" "${_getDocker}")" -eq 0 ]]; then
-        sudo chmod +x "${_getDocker}"
-        sh "${_getDocker}" > /dev/null # must be executed as non-root
-      fi
+      sudo systemctl --user stop docker 2> /dev/null || true
+      sudo rm -f "/home/${FS_USER}/bin/dockerd" 2> /dev/null || true
+      
+      sudo systemctl stop docker.socket docker.service 2> /dev/null || true
+      sudo systemctl disable --now docker.socket docker.service 2> /dev/null  || true
+      sudo rm -f "/var/run/docker.sock" 2> /dev/null || true
+
+      _fsDownload_ "${_getDockerUrl}" "${_getDocker}" > /dev/null
+      sudo chmod +x "${_getDocker}"
+      sh "${_getDocker}" > /dev/null # must be executed as non-root
       
       rm -f "${_getDocker}"
       
       # export docker host for initial setup and crontab
-      export "DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock"
+      #export "DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock"
+
+      _count=$(($_count + 1))
     else
       _fsMsg_ "Docker (rootless) is installed."
       break
@@ -853,6 +869,7 @@ _fsSetupDocker_() {
 
   while true; do
     if ! sudo loginctl show-user "${FS_USER}" 2> /dev/null | grep -q 'Linger=yes'; then
+      _fsMsg_ "Enabling auto-restart of docker (rootless)..."
       systemctl --user enable docker
       sudo loginctl enable-linger "${FS_USER}"
     else
@@ -1047,6 +1064,7 @@ _fsSetupTailscale_() {
   while true; do
     if ! tailscale ip -4 > /dev/null 2> /dev/null; then
       _fsMsg_ "Setup account first: https://tailscale.com"
+      
       if [[ "$(_fsCaseConfirmation_ "Install tailscale now?")" -eq 1 ]]; then
         _fsMsg_ "Skipping..."
         break
@@ -1382,8 +1400,6 @@ _fsArchitecture_() {
         ;;
       *)
         _os='unkown'
-        _fsMsg_ '[ERROR] Unable to determine operating system.'
-        exit 1
         ;;
     esac
   fi
@@ -1404,10 +1420,12 @@ _fsArchitecture_() {
           _architecture='arm'
         fi
         ;;
+      aarch64)
+        _architecture='arm64'
+        _architectureSupported=0
+        ;;
       *)
         _architecture='unkown'
-        _fsMsg_ '[ERROR] Unable to determine architecture.'
-        exit 1
     esac
   fi
 
