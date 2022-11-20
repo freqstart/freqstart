@@ -739,8 +739,10 @@ _fsSetupUser_() {
       mkdir -p "${_userTmpDir}"
       
       # copy freqstart to new user home
-      cp -a "${FS_PATH}" "${_userTmpDir}/${FS_FILE}"
-      cp -a "${FS_STRATEGIES_PATH}" "${_userTmpDir}/${FS_STRATEGIES_FILE}"
+      mv "${FS_PATH}" "${_userTmpDir}/${FS_FILE}"
+      mv "${FS_STRATEGIES_PATH}" "${_userTmpDir}/${FS_STRATEGIES_FILE}"
+      mv "${FS_DIR}/.git" "${_userTmpDir}/.git"
+
       sudo chown -R "${_userTmp}":"${_userTmp}" "${_userTmpDir}"
       sudo chmod +x "${_userTmpPath}"
       
@@ -752,9 +754,6 @@ _fsSetupUser_() {
       # remove scriptlock and symlink
       rm -rf "${FS_TMP}"
       sudo rm -f "${FS_SYMLINK}"
-      
-      rm -f "${FS_STRATEGIES_PATH}"
-      rm -f "${FS_PATH}"
       
       _fsMsgTitle_ "CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE} --setup"
 
@@ -797,9 +796,10 @@ _fsSetupPrerequisites_() {
   # create the strategy config
   while true; do
     if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
+      _fsMsg_ "Downloading strategies config..."
       _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
     else
-      _fsMsg_ "Strategies file downloaded."
+      _fsMsg_ "Strategies config is installed."
       break
     fi
   done
@@ -818,6 +818,7 @@ _fsSetupPrerequisites_() {
       sudo apt update || true
       
       for _pkgSetup in "${_pkgsSetup[@]}"; do
+        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
         sudo apt install -y -q "${_pkgSetup}"
       done
     else
@@ -840,11 +841,10 @@ _fsSetupDocker_() {
     if ! docker info 2> /dev/null | grep -q 'rootless'; then
       [[ $_count -gt 0 ]] && _fsMsgError_ "Error while installing docker (rootless)."
 
-      _fsMsg_ "Installing docker..."
+      _fsMsg_ "Installing docker (rootless)..."
       
       sudo systemctl --user stop docker 2> /dev/null || true
       sudo rm -f "/home/${FS_USER}/bin/dockerd" 2> /dev/null || true
-      
       sudo systemctl stop docker.socket docker.service 2> /dev/null || true
       sudo systemctl disable --now docker.socket docker.service 2> /dev/null  || true
       sudo rm -f "/var/run/docker.sock" 2> /dev/null || true
@@ -852,7 +852,6 @@ _fsSetupDocker_() {
       _fsDownload_ "${_getDockerUrl}" "${_getDocker}" > /dev/null
       sudo chmod +x "${_getDocker}"
       sh "${_getDocker}" > /dev/null # must be executed as non-root
-      
       rm -f "${_getDocker}"
       
       # export docker host for initial setup and crontab
@@ -871,7 +870,7 @@ _fsSetupDocker_() {
       systemctl --user enable docker
       sudo loginctl enable-linger "${FS_USER}"
     else
-      _fsMsg_ "Auto-restart of Docker (rootless) on boot is enabled."
+      _fsMsg_ "Auto-restart of docker (rootless) is enabled."
       break
     fi
   done
@@ -902,6 +901,8 @@ _fsSetupFreqtrade_() {
 
   while true; do
     if [[ ! -d "${FS_DIR_USER_DATA}" ]]; then
+      _fsMsg_ "Creating \"user_data\" directory..."
+      
       _fsFileCreate_ "${_yml}" \
       "---" \
       "version: '3'" \
@@ -920,7 +921,7 @@ _fsSetupFreqtrade_() {
       
       rm -f "${_yml}"
     else
-      _fsMsg_ "Directory \"user_data\" for Freqtrade exist."
+      _fsMsg_ "Directory \"user_data\" exist."
       break
     fi
   done
@@ -1119,19 +1120,19 @@ _fsSetupFrequi_() {
   local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
   local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
   local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
-  local _fsArchitecture=""
-  
-  if [[ "$FS_ARCHITECTURE" = "arm64" ]]; then
-    _fsArchitecture="arm64v8"
-  else
-    _fsArchitecture="$FS_ARCHITECTURE"
-  fi
+  local _architecture=""
   
   _fsMsgTitle_ "SETUP: FREQUI"
-  
+
+  if [[ "${FS_ARCHITECTURE}" = "arm64" ]]; then
+    _architecture="arm64v8"
+  else
+    _architecture="${FS_ARCHITECTURE}"
+  fi
+    
   while true; do
     if [[ -z "${_tailscaleIp}" ]]; then
-      _fsMsg_ "Installation of Tailscale is required. Restart setup!"
+      _fsMsg_ "Installation of tailscale is required. Restart setup!"
       break
     fi
     
@@ -1151,6 +1152,8 @@ _fsSetupFrequi_() {
     # set unprivileged ports to start with 80 for rootles nginx proxy
     while true; do
       if [[ "$(_fsSymlinkValidate_ "${_sysctlSymlink}")" -eq 1 ]]; then
+        _fsMsg_ "Allowing unprivileged ports for rootless nginx proxy..."
+        
         _fsFileCreate_ "${_sysctl}" \
         "# ${FS_NAME}" \
         '# set unprivileged ports to start with 80 for rootless nginx proxy' \
@@ -1290,31 +1293,29 @@ _fsSetupFrequi_() {
     "add_header X-XSS-Protection \"1; mode=block\";"
     
     # generate self-signed certificate
-    while true; do
-      if [[ -f "${_sslKey}" ]]; then
-        if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
-          _fsMsg_ "Skipping..."
-          break
-        else
-          rm -f "${_sslKey}"
-          rm -f "${_sslCert}"
-          rm -f "${_sslParam}"
-        fi
-      fi
-
-      touch "${_sslParam}"
-
-      sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
-      
-      if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then
-        _fsMsgError_ 'Failed to create SSL key or cert files. Restart Nginx setup!'
-        
+    if [[ -f "${_sslKey}" ]]; then
+      if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
+        _fsMsg_ "Skipping..."
+      else
         rm -f "${_sslKey}"
         rm -f "${_sslCert}"
         rm -f "${_sslParam}"
       fi
+    fi
       
-      break
+    while true; do
+      if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then        
+        rm -f "${_sslKey}"
+        rm -f "${_sslCert}"
+        rm -f "${_sslParam}"
+        
+        touch "${_sslParam}"
+        
+        sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
+      else
+        _fsMsg_ "SSL files exist."
+        break
+      fi
     done
 
     # create nginx docker project file
@@ -1323,7 +1324,7 @@ _fsSetupFrequi_() {
     "services:" \
     "  ${FS_NGINX}:" \
     "    container_name: ${FS_NGINX}" \
-    "    image: ${_fsArchitecture}/nginx:stable" \
+    "    image: ${_architecture}/nginx:stable" \
     "    ports:" \
     "      - \"${_tailscaleIp}:80:80\"" \
     "      - \"${_tailscaleIp}:443:443\"" \
@@ -1779,7 +1780,6 @@ _fsArrayIn_() {
   
   for _array_item in "$@"; do
     if [[ ${_array_item} =~ ^${_value}$ ]]; then
-      echo 0
       _match=0
       break
     fi
@@ -1787,6 +1787,8 @@ _fsArrayIn_() {
   
   if [[ "${_match}" -eq 1 ]]; then
     echo 1
+  else
+    echo 0
   fi
 }
 
