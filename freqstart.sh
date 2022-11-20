@@ -588,7 +588,7 @@ _fsProjects_() {
   local _crontabProjectsList=''
   
   # export docker host for crontab
-  export DOCKER_HOST=unix:///run/user/"${FS_USER_ID}"/docker.sock
+  #export DOCKER_HOST=unix:///run/user/"${FS_USER_ID}"/docker.sock
   
   # find docker project files in script root
   readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0)
@@ -756,9 +756,7 @@ _fsSetupUser_() {
       rm -f "${FS_STRATEGIES_PATH}"
       rm -f "${FS_PATH}"
       
-      _fsMsg_ "#"
-      _fsMsg_ "# CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE} --setup"
-      _fsMsg_ "#"
+      _fsMsgTitle_ "CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE} --setup"
 
       sudo machinectl shell "${_userTmp}@" # machinectl is needed to set $XDG_RUNTIME_DIR properly
       exit 0 # force exit needed
@@ -1121,6 +1119,13 @@ _fsSetupFrequi_() {
   local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
   local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
   local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
+  local _fsArchitecture=""
+  
+  if [[ "$FS_ARCHITECTURE" = "arm64" ]]; then
+    _fsArchitecture="arm64v8"
+  else
+    _fsArchitecture="$FS_ARCHITECTURE"
+  fi
   
   _fsMsgTitle_ "SETUP: FREQUI"
   
@@ -1318,7 +1323,7 @@ _fsSetupFrequi_() {
     "services:" \
     "  ${FS_NGINX}:" \
     "    container_name: ${FS_NGINX}" \
-    "    image: ${FS_ARCHITECTURE}/nginx:stable" \
+    "    image: ${_fsArchitecture}/nginx:stable" \
     "    ports:" \
     "      - \"${_tailscaleIp}:80:80\"" \
     "      - \"${_tailscaleIp}:443:443\"" \
