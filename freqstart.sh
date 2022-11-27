@@ -21,7 +21,7 @@ set -o errtrace
 set -o nounset
 set -o pipefail
 
-readonly FS_VERSION='v3.0.7'
+readonly FS_VERSION='v3.0.8'
 
 readonly FS_NAME="freqstart"
 readonly FS_TMP="/tmp/${FS_NAME}"
@@ -39,7 +39,7 @@ readonly FS_USER
 FS_USER_ID="$(id -u)"
 readonly FS_USER_ID
 
-readonly FS_AUTO_SCHEDULE="3 0 * * *"
+readonly FS_AUTO_SCHEDULE="0 0 * * *"
 readonly FS_AUTO_SCRIPT="${FS_PATH} --auto"
 
 readonly FS_NETWORK="${FS_NAME}_network"
@@ -199,7 +199,6 @@ _fsReset_() {
   
   if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
     _fsCrontabRemove_ "${FS_AUTO_SCRIPT}"
-    _fsCrontabRemove_ "${FS_CERTBOT_CRON}"
     
     # credit: https://stackoverflow.com/a/69921248
     docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
@@ -404,11 +403,11 @@ _fsProjectCompose_() {
       # create docker network; credit: https://stackoverflow.com/a/59878917
       docker network create --subnet="${FS_NETWORK_SUBNET}" --gateway "${FS_NETWORK_GATEWAY}" "${FS_NETWORK}" > /dev/null 2> /dev/null || true
 
-      docker compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
+      docker-compose -f "${_project}" -p "${_projectFileName}" up --no-start > /dev/null 2> /dev/null || true
 
       while read -r; do
         _containers+=( "$REPLY" )
-      done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+      done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
       for _container in "${_containers[@]}"; do
         _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -431,8 +430,11 @@ _fsProjectCompose_() {
           _fsMsg_ "Starting container: ${_containerName}"
           docker start "${_containerName}" > /dev/null
         else
-          _fsMsg_ "Restarting container: ${_containerName}"
-          docker restart "${_containerName}" > /dev/null
+          if [[ "$(_fsCaseConfirmation_ "Restart container: ${_containerName}")" -eq 0 ]]; then
+            docker restart "${_containerName}" > /dev/null
+          else
+            _fsMsg_ "Skipping..."
+          fi
         fi
       done
       
@@ -456,7 +458,7 @@ _fsProjectRun_() {
   if [[ -f "${_project}" ]]; then
     _fsProjectImages_ "${_project}"
     
-    docker compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
+    docker-compose -f "${_project}" -p "${_projectFileName}" run --rm "${_projectService}"
   else
     _fsMsgError_ "File not found: ${_projectFile}"
   fi
@@ -488,7 +490,7 @@ _fsProjectValidate_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+  done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -551,7 +553,7 @@ _fsProjectQuit_() {
   
   while read -r; do
     _containers+=( "$REPLY" )
-  done < <(docker compose -f "${_project}" -p "${_projectFileName}" ps -q)
+  done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
   
   for _container in "${_containers[@]}"; do
     _containerName="$(_fsDockerContainerName_ "${_container}")"
@@ -585,9 +587,6 @@ _fsProjects_() {
   local _crontabProjects=()
   local _crontabProjectsList=''
   
-  # export docker host for crontab
-  export DOCKER_HOST=unix:///run/user/"${FS_USER_ID}"/docker.sock
-  
   # find docker project files in script root
   readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0)
   
@@ -617,6 +616,7 @@ _fsProjects_() {
       fi
 
       for _project in "${_projects[@]}"; do
+            
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
             if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
@@ -665,9 +665,7 @@ _fsProjects_() {
 ######################################################################
 
 _fsSetup_() {
-  
   _fsSetupPrerequisites_
-  _fsSetupUpdate_
   _fsSetupUser_
   _fsSetupDocker_
   _fsSetupFreqtrade_
@@ -678,31 +676,59 @@ _fsSetup_() {
   _fsSetupFinish_
 }
 
-_fsSetupUpdate_() {
-  local _script=''
-  local _strategies=0
+
+_fsSetupPrerequisites_() {  
+  local _pkgs=(
+  "curl"
+  "cron"
+  "jq"
+  "ufw"
+  "openssl"
+  "systemd-container"
+  "uidmap"
+  "dbus-user-session"
+  "docker-compose"
+  )
+  local _pkg=''
+  local _pkgsSetup=()
+  local _pkgSetup=''
   
-  _fsMsgTitle_ "SETUP: UPDATE"
-  
-  if [[ "$(_fsCaseConfirmation_ "Update script and strategy file?")" -eq 0 ]]; then
-    _script="$(_fsDownload_ "${FS_URL}" "${FS_PATH}")"
-    _strategies="$(_fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}")"
-    
-    if [[ "${_script}" -eq 1 ]]; then
-      _fsMsgSuccess_ "Updated to newest version: ${FS_STRATEGIES_PATH##*/}"
-      sudo chmod +x "${FS_PATH}"
+  _fsMsgTitle_ "SETUP: PREREQUISITES"
+
+  # create the strategy config
+  while true; do
+    if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
+      _fsMsg_ "Downloading strategies config..."
+      _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
     else
-      _fsMsg_ "Already latest version: ${FS_STRATEGIES_PATH##*/}"
+      _fsMsg_ "Strategies config is installed."
+      break
     fi
+  done
+
+  # install and validate all required packages
+  while true; do
+    _pkgsSetup=()
     
-    if [[ "${_strategies}" -eq 1 ]]; then
-      _fsMsgSuccess_ "Updated to newest version: ${FS_PATH##*/}"
+    for _pkg in "${_pkgs[@]}"; do
+      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
+        _pkgsSetup+=("${_pkg}")
+      fi
+    done
+    
+    if (( ${#_pkgsSetup[@]} )); then
+      _fsMsgTitle_ "Update packages..."
+      sudo apt update || true
+      
+      for _pkgSetup in "${_pkgsSetup[@]}"; do
+        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
+        sudo apt install -y -q "${_pkgSetup}"
+      done
     else
-      _fsMsg_ "Already latest version: ${FS_PATH##*/}"
+      _fsMsg_ "All packages installed."
+      break
     fi
-  else
-    _fsMsg_ "Skipping..."
-  fi
+  done
 }
 
 _fsSetupUser_() {
@@ -766,8 +792,10 @@ _fsSetupUser_() {
       mkdir -p "${_userTmpDir}"
       
       # copy freqstart to new user home
-      cp -a "${FS_PATH}" "${_userTmpDir}/${FS_FILE}"
-      cp -a "${FS_STRATEGIES_PATH}" "${_userTmpDir}/${FS_STRATEGIES_FILE}"
+      mv "${FS_PATH}" "${_userTmpDir}/${FS_FILE}"
+      mv "${FS_STRATEGIES_PATH}" "${_userTmpDir}/${FS_STRATEGIES_FILE}"
+      mv "${FS_DIR}/.git" "${_userTmpDir}/.git"
+
       sudo chown -R "${_userTmp}":"${_userTmp}" "${_userTmpDir}"
       sudo chmod +x "${_userTmpPath}"
       
@@ -780,12 +808,8 @@ _fsSetupUser_() {
       rm -rf "${FS_TMP}"
       sudo rm -f "${FS_SYMLINK}"
       
-      _fsMsg_ "#"
-      _fsMsg_ "# CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE}"
-      _fsMsg_ "#"
-      
-      rm -f "${FS_STRATEGIES_PATH}"
-      rm -f "${FS_PATH}"
+      _fsMsgTitle_ "CONTINUE SETUP WITH FOLLOWING COMMAND: ${_userTmpDir}/${FS_FILE} --setup"
+
       sudo machinectl shell "${_userTmp}@" # machinectl is needed to set $XDG_RUNTIME_DIR properly
       exit 0 # force exit needed
     else
@@ -794,6 +818,7 @@ _fsSetupUser_() {
   else
     while true; do
       if ! sudo grep -q "${_userSudoer}" "${_userSudoerFile}" 2> /dev/null; then
+        _fsMsg_ "Activating sudo for user: ${FS_USER}"
         echo "${_userSudoer}" | sudo tee "${_userSudoerFile}" > /dev/null
       else
         _fsMsg_ "Sudo is active for user: ${FS_USER}"
@@ -803,77 +828,33 @@ _fsSetupUser_() {
   fi
 }
 
-_fsSetupPrerequisites_() {  
-  local _pkgs=(
-  "curl"
-  "cron"
-  "jq"
-  "ufw"
-  "openssl"
-  "systemd-container"
-  "uidmap"
-  "dbus-user-session"
-  )
-  local _pkg=''
-  local _pkgsSetup=()
-  local _pkgSetup=''
-  
-  _fsMsgTitle_ "SETUP: PREREQUISITES"
-
-  # create the strategy config
-  while true; do
-    if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
-      _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
-    else
-      _fsMsg_ "Strategies file downloaded."
-      break
-    fi
-  done
-
-  # install and validate all required packages
-  while true; do
-    for _pkg in "${_pkgs[@]}"; do
-      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
-        _pkgsSetup+=("${_pkg}")
-      fi
-    done
-    
-    if (( ${#_pkgsSetup[@]} )); then
-      sudo apt update || true
-      
-      for _pkgSetup in "${_pkgsSetup[@]}"; do
-        sudo apt install -y -q "${_pkgSetup}"
-      done
-    else
-      _fsMsg_ "All packages installed."
-      break
-    fi
-  done
-}
-
 _fsSetupDocker_() {
   local _userBashrc="$(getent passwd "${FS_USER}" | cut -d: -f6)/.bashrc"
   local _getDocker="${FS_DIR}/get-docker.sh"
   local _getDockerUrl="https://get.docker.com/rootless"
+  local _count=0
 
   _fsMsgTitle_ "SETUP: DOCKER (ROOTLESS)"
 
   # validate if linger is set for current user
   while true; do
     if ! docker info 2> /dev/null | grep -q 'rootless'; then
-      sudo systemctl stop docker.socket docker.service || true
-      sudo systemctl disable --now docker.socket docker.service || true
-      sudo rm /var/run/docker.sock || true
+      [[ $_count -gt 0 ]] && _fsMsgError_ "Error while installing docker (rootless)."
+
+      _fsMsg_ "Installing docker (rootless)..."
       
-      if [[ "$(_fsDownload_ "${_getDockerUrl}" "${_getDocker}")" -eq 0 ]]; then
-        sudo chmod +x "${_getDocker}"
-        sh "${_getDocker}" > /dev/null # must be executed as non-root
-      fi
-      
+      sudo systemctl --user stop docker 2> /dev/null || true
+      sudo rm -f "/home/${FS_USER}/bin/dockerd" 2> /dev/null || true
+      sudo systemctl stop docker.socket docker.service 2> /dev/null || true
+      sudo systemctl disable --now docker.socket docker.service 2> /dev/null  || true
+      sudo rm -f "/var/run/docker.sock" 2> /dev/null || true
+
+      _fsDownload_ "${_getDockerUrl}" "${_getDocker}" > /dev/null
+      sudo chmod +x "${_getDocker}"
+      sh "${_getDocker}" > /dev/null # must be executed as non-root
       rm -f "${_getDocker}"
-      
-      # export docker host for initial setup and crontab
-      export "DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock"
+
+      _count=$(($_count + 1))
     else
       _fsMsg_ "Docker (rootless) is installed."
       break
@@ -882,26 +863,11 @@ _fsSetupDocker_() {
 
   while true; do
     if ! sudo loginctl show-user "${FS_USER}" 2> /dev/null | grep -q 'Linger=yes'; then
+      _fsMsg_ "Enabling auto-restart of docker (rootless)..."
       systemctl --user enable docker
       sudo loginctl enable-linger "${FS_USER}"
     else
-      _fsMsg_ "Auto-restart of Docker (rootless) on boot is enabled."
-      break
-    fi
-  done
-  
-  while true; do
-    # shellcheck disable=SC2002
-    if ! cat "${_userBashrc}" | grep -q "# ${FS_NAME}"; then
-      # add docker variables to bashrc; note: path variable should be set but left the comment in
-      printf -- '%s\n' \
-      '' \
-      "# ${FS_NAME}" \
-      "#export PATH=/home/${FS_USER}/bin:\$PATH" \
-      "export DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock" \
-      '' >> "${_userBashrc}"
-    else
-      _fsMsg_ "Docker (rootless) host export on login is enabled."
+      _fsMsg_ "Auto-restart of docker (rootless) is enabled."
       break
     fi
   done
@@ -916,6 +882,8 @@ _fsSetupFreqtrade_() {
 
   while true; do
     if [[ ! -d "${FS_DIR_USER_DATA}" ]]; then
+      _fsMsg_ "Creating \"user_data\" directory..."
+      
       _fsFileCreate_ "${_yml}" \
       "---" \
       "version: '3'" \
@@ -934,7 +902,7 @@ _fsSetupFreqtrade_() {
       
       rm -f "${_yml}"
     else
-      _fsMsg_ "Directory \"user_data\" for Freqtrade exist."
+      _fsMsg_ "Directory \"user_data\" exist."
       break
     fi
   done
@@ -1076,6 +1044,7 @@ _fsSetupTailscale_() {
   while true; do
     if ! tailscale ip -4 > /dev/null 2> /dev/null; then
       _fsMsg_ "Setup account first: https://tailscale.com"
+      
       if [[ "$(_fsCaseConfirmation_ "Install tailscale now?")" -eq 1 ]]; then
         _fsMsg_ "Skipping..."
         break
@@ -1087,29 +1056,30 @@ _fsSetupTailscale_() {
       fi
     else
       _fsMsg_ "Tailscale is installed: $(tailscale ip -4)"
-      break
-    fi
-  done
-
-  while true; do
-    if ! sudo ufw status | grep -q "tailscale0"; then
-      if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale (recommended)?")" -eq 0 ]]; then
-        # ufw allow access over tailscale
-        sudo ufw --force reset > /dev/null
-        sudo ufw allow in on tailscale0 > /dev/null
-        sudo ufw allow 41641/udp > /dev/null
-        sudo ufw default deny incoming > /dev/null
-        sudo ufw default allow outgoing > /dev/null
-        sudo ufw --force enable > /dev/null
-        sudo service ssh restart
-      else
-        _fsMsg_ "Skipping..."
-        break
-      fi
-    else
-      _fsMsg_ "Access is restricted to Tailscale."
-      _fsMsg_ "Disable key expiration (recommended):"
-      _fsMsg_ "https://tailscale.com/kb/1028/key-expiry/"
+      
+      while true; do
+        if ! sudo ufw status | grep -q "tailscale0"; then
+          if [[ "$(_fsCaseConfirmation_ "Restrict all access incl. SSH to Tailscale (recommended)?")" -eq 0 ]]; then
+            # ufw allow access over tailscale
+            sudo ufw --force reset > /dev/null
+            sudo ufw allow in on tailscale0 > /dev/null
+            sudo ufw allow 41641/udp > /dev/null
+            sudo ufw default deny incoming > /dev/null
+            sudo ufw default allow outgoing > /dev/null
+            sudo ufw --force enable > /dev/null
+            sudo service ssh restart
+          else
+            _fsMsg_ "Skipping..."
+            break
+          fi
+        else
+          _fsMsg_ "Access is restricted to tailscale."
+          _fsMsg_ "Disable key expiration (recommended):"
+          _fsMsg_ "https://tailscale.com/kb/1028/key-expiry/"
+          break
+        fi
+      done
+      
       break
     fi
   done
@@ -1118,7 +1088,7 @@ _fsSetupTailscale_() {
 # FREQUI
 
 _fsSetupFrequi_() {
-  local _tailscaleIp="$(tailscale ip -4 2> /dev/null)"
+  local _tailscaleIp="$(tailscale ip -4 2> /dev/null || true)"
   local _sysctl="${FS_NGINX_DIR}/99-${FS_NAME}.conf"
   local _sysctlSymlink="/etc/sysctl.d/${_sysctl##*/}"
   local _jwt=''
@@ -1131,12 +1101,19 @@ _fsSetupFrequi_() {
   local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
   local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
   local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
+  local _architecture=""
   
   _fsMsgTitle_ "SETUP: FREQUI"
-  
+
+  if [[ "${FS_ARCHITECTURE}" = "arm64" ]]; then
+    _architecture="arm64v8"
+  else
+    _architecture="${FS_ARCHITECTURE}"
+  fi
+    
   while true; do
     if [[ -z "${_tailscaleIp}" ]]; then
-      _fsMsg_ "Installation of Tailscale is required. Restart setup!"
+      _fsMsg_ "Installation of tailscale is required. Restart setup!"
       break
     fi
     
@@ -1156,6 +1133,8 @@ _fsSetupFrequi_() {
     # set unprivileged ports to start with 80 for rootles nginx proxy
     while true; do
       if [[ "$(_fsSymlinkValidate_ "${_sysctlSymlink}")" -eq 1 ]]; then
+        _fsMsg_ "Allowing unprivileged ports for rootless nginx proxy..."
+        
         _fsFileCreate_ "${_sysctl}" \
         "# ${FS_NAME}" \
         '# set unprivileged ports to start with 80 for rootless nginx proxy' \
@@ -1295,31 +1274,29 @@ _fsSetupFrequi_() {
     "add_header X-XSS-Protection \"1; mode=block\";"
     
     # generate self-signed certificate
-    while true; do
-      if [[ -f "${_sslKey}" ]]; then
-        if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
-          _fsMsg_ "Skipping..."
-          break
-        else
-          rm -f "${_sslKey}"
-          rm -f "${_sslCert}"
-          rm -f "${_sslParam}"
-        fi
-      fi
-
-      touch "${_sslParam}"
-
-      sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
-      
-      if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then
-        _fsMsgError_ 'Failed to create SSL key or cert files. Restart Nginx setup!'
-        
+    if [[ -f "${_sslKey}" ]]; then
+      if [[ "$(_fsCaseConfirmation_ "Skip generating new SSL key?")" -eq 0 ]]; then
+        _fsMsg_ "Skipping..."
+      else
         rm -f "${_sslKey}"
         rm -f "${_sslCert}"
         rm -f "${_sslParam}"
       fi
+    fi
       
-      break
+    while true; do
+      if [[ ! -f "${_sslKey}" ]] || [[ ! -f "${_sslCert}" ]] || [[ ! -f "${_sslParam}" ]]; then        
+        rm -f "${_sslKey}"
+        rm -f "${_sslCert}"
+        rm -f "${_sslParam}"
+        
+        touch "${_sslParam}"
+        
+        sh -c "openssl req -x509 -nodes -days 358000 -newkey rsa:2048 -keyout ${_sslKey} -out ${_sslCert} -subj /CN=localhost; openssl dhparam -out ${_sslParam} 4096"
+      else
+        _fsMsg_ "SSL files exist."
+        break
+      fi
     done
 
     # create nginx docker project file
@@ -1328,7 +1305,7 @@ _fsSetupFrequi_() {
     "services:" \
     "  ${FS_NGINX}:" \
     "    container_name: ${FS_NGINX}" \
-    "    image: ${FS_ARCHITECTURE}/nginx:stable" \
+    "    image: ${_architecture}/nginx:stable" \
     "    ports:" \
     "      - \"${_tailscaleIp}:80:80\"" \
     "      - \"${_tailscaleIp}:443:443\"" \
@@ -1411,8 +1388,6 @@ _fsArchitecture_() {
         ;;
       *)
         _os='unkown'
-        _fsMsg_ '[ERROR] Unable to determine operating system.'
-        exit 1
         ;;
     esac
   fi
@@ -1433,10 +1408,12 @@ _fsArchitecture_() {
           _architecture='arm'
         fi
         ;;
+      aarch64)
+        _architecture='arm64'
+        _architectureSupported=0
+        ;;
       *)
         _architecture='unkown'
-        _fsMsg_ '[ERROR] Unable to determine architecture.'
-        exit 1
     esac
   fi
 
@@ -1466,7 +1443,7 @@ _fsStrategy_() {
   if [[ -f "${_strategies}" ]]; then
     while read -r; do
     _urls+=( "$REPLY" )
-    done < <(jq -r ".${_name}[]"' // empty' "${FS_STRATEGIES_PATH}")
+    done < <(jq -r ".${_name}[]?" "${FS_STRATEGIES_PATH}")
         
     if (( ${#_urls[@]} )); then
       while read -r; do
@@ -1600,14 +1577,15 @@ _fsCleanup_() {
 _fsCaseConfirmation_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _question="${1}"
+  local _question="? ${1} (y/n)"
   local _yesNo=''
 
   while true; do
     if [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
+      _fsMsg_ "${_question} y"
       _yesNo="y"
     else
-      read -rp "? ${_question} (y/n) " _yesNo
+      read -rp "${_question} " _yesNo
     fi
     
     case ${_yesNo} in
@@ -1784,7 +1762,6 @@ _fsArrayIn_() {
   
   for _array_item in "$@"; do
     if [[ ${_array_item} =~ ^${_value}$ ]]; then
-      echo 0
       _match=0
       break
     fi
@@ -1792,6 +1769,8 @@ _fsArrayIn_() {
   
   if [[ "${_match}" -eq 1 ]]; then
     echo 1
+  else
+    echo 0
   fi
 }
 

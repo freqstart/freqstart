@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.7
+# FREQSTART v3.0.8
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -78,7 +78,10 @@ Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://ww
    ```
 
 ### Setup `Freqstart`
-
+   (Oracle Linux)
+   ```sh
+   sudo yum install git
+   ```
    Clone the repo
    ```sh
    git clone https://github.com/freqstart/freqstart.git
@@ -158,6 +161,15 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.8`
+* Fixed setup routine endless loop
+* Fixed missing variable in docker reset routine
+* Added active tailscale validation to ufw config routine
+* Fixed frequi setup error when tailscale is not installed
+* Changed "docker compose" to "docker-compose" because of "-f" flag bug
+* Removed docker host variable export
+* Added arm64 architecture support for oracle free tier
 
 `v3.0.7`
 * Replaced project name with project file name.
