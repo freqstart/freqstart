@@ -168,6 +168,8 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 * Added active tailscale validation to ufw config routine
 * Fixed frequi setup error when tailscale is not installed
 * Changed "docker compose" to "docker-compose" because of "-f" flag bug
+* Removed docker host variable export
+* Added arm64 architecture support for oracle free tier
 
 `v3.0.7`
 * Replaced project name with project file name.
