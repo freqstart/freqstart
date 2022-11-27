@@ -39,7 +39,7 @@ readonly FS_USER
 FS_USER_ID="$(id -u)"
 readonly FS_USER_ID
 
-readonly FS_AUTO_SCHEDULE="3 0 * * *"
+readonly FS_AUTO_SCHEDULE="0 0 * * *"
 readonly FS_AUTO_SCRIPT="${FS_PATH} --auto"
 
 readonly FS_NETWORK="${FS_NAME}_network"
@@ -587,9 +587,6 @@ _fsProjects_() {
   local _crontabProjects=()
   local _crontabProjectsList=''
   
-  # export docker host for crontab
-  #export DOCKER_HOST=unix:///run/user/"${FS_USER_ID}"/docker.sock
-  
   # find docker project files in script root
   readarray -d '' _projects < <(find "${FS_DIR}" -maxdepth 1 -name "*.yml" -print0)
   
@@ -619,6 +616,7 @@ _fsProjects_() {
       fi
 
       for _project in "${_projects[@]}"; do
+            
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
             if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
@@ -676,6 +674,61 @@ _fsSetup_() {
   _fsSetupTailscale_
   _fsSetupFrequi_
   _fsSetupFinish_
+}
+
+
+_fsSetupPrerequisites_() {  
+  local _pkgs=(
+  "curl"
+  "cron"
+  "jq"
+  "ufw"
+  "openssl"
+  "systemd-container"
+  "uidmap"
+  "dbus-user-session"
+  "docker-compose"
+  )
+  local _pkg=''
+  local _pkgsSetup=()
+  local _pkgSetup=''
+  
+  _fsMsgTitle_ "SETUP: PREREQUISITES"
+
+  # create the strategy config
+  while true; do
+    if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
+      _fsMsg_ "Downloading strategies config..."
+      _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
+    else
+      _fsMsg_ "Strategies config is installed."
+      break
+    fi
+  done
+
+  # install and validate all required packages
+  while true; do
+    _pkgsSetup=()
+    
+    for _pkg in "${_pkgs[@]}"; do
+      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
+        _pkgsSetup+=("${_pkg}")
+      fi
+    done
+    
+    if (( ${#_pkgsSetup[@]} )); then
+      _fsMsgTitle_ "Update packages..."
+      sudo apt update || true
+      
+      for _pkgSetup in "${_pkgsSetup[@]}"; do
+        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
+        sudo apt install -y -q "${_pkgSetup}"
+      done
+    else
+      _fsMsg_ "All packages installed."
+      break
+    fi
+  done
 }
 
 _fsSetupUser_() {
@@ -775,59 +828,6 @@ _fsSetupUser_() {
   fi
 }
 
-_fsSetupPrerequisites_() {  
-  local _pkgs=(
-  "curl"
-  "cron"
-  "jq"
-  "ufw"
-  "openssl"
-  "systemd-container"
-  "uidmap"
-  "dbus-user-session"
-  "docker-compose"
-  )
-  local _pkg=''
-  local _pkgsSetup=()
-  local _pkgSetup=''
-  
-  _fsMsgTitle_ "SETUP: PREREQUISITES"
-
-  # create the strategy config
-  while true; do
-    if [[ ! -f "${FS_STRATEGIES_PATH}" ]]; then
-      _fsMsg_ "Downloading strategies config..."
-      _fsDownload_ "${FS_STRATEGIES_URL}" "${FS_STRATEGIES_PATH}" > /dev/null
-    else
-      _fsMsg_ "Strategies config is installed."
-      break
-    fi
-  done
-
-  # install and validate all required packages
-  while true; do
-    _pkgsSetup=()
-    
-    for _pkg in "${_pkgs[@]}"; do
-      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
-        _pkgsSetup+=("${_pkg}")
-      fi
-    done
-    
-    if (( ${#_pkgsSetup[@]} )); then
-      sudo apt update || true
-      
-      for _pkgSetup in "${_pkgsSetup[@]}"; do
-        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
-        sudo apt install -y -q "${_pkgSetup}"
-      done
-    else
-      _fsMsg_ "All packages installed."
-      break
-    fi
-  done
-}
-
 _fsSetupDocker_() {
   local _userBashrc="$(getent passwd "${FS_USER}" | cut -d: -f6)/.bashrc"
   local _getDocker="${FS_DIR}/get-docker.sh"
@@ -853,9 +853,6 @@ _fsSetupDocker_() {
       sudo chmod +x "${_getDocker}"
       sh "${_getDocker}" > /dev/null # must be executed as non-root
       rm -f "${_getDocker}"
-      
-      # export docker host for initial setup and crontab
-      #export "DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock"
 
       _count=$(($_count + 1))
     else
@@ -871,22 +868,6 @@ _fsSetupDocker_() {
       sudo loginctl enable-linger "${FS_USER}"
     else
       _fsMsg_ "Auto-restart of docker (rootless) is enabled."
-      break
-    fi
-  done
-  
-  while true; do
-    # shellcheck disable=SC2002
-    if ! cat "${_userBashrc}" | grep -q "# ${FS_NAME}"; then
-      # add docker variables to bashrc; note: path variable should be set but left the comment in
-      printf -- '%s\n' \
-      '' \
-      "# ${FS_NAME}" \
-      "#export PATH=/home/${FS_USER}/bin:\$PATH" \
-      "export DOCKER_HOST=unix:///run/user/${FS_USER_ID}/docker.sock" \
-      '' >> "${_userBashrc}"
-    else
-      _fsMsg_ "Docker (rootless) host export on login is enabled."
       break
     fi
   done
@@ -1596,14 +1577,15 @@ _fsCleanup_() {
 _fsCaseConfirmation_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _question="${1}"
+  local _question="? ${1} (y/n)"
   local _yesNo=''
 
   while true; do
     if [[ "${FS_OPTS_AUTO}" -eq 0 ]]; then
+      _fsMsg_ "${_question} y"
       _yesNo="y"
     else
-      read -rp "? ${_question} (y/n) " _yesNo
+      read -rp "${_question} " _yesNo
     fi
     
     case ${_yesNo} in
