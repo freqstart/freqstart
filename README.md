@@ -1,7 +1,7 @@
 <div id="top"></div>
 
 <!-- FREQSTART -->
-# FREQSTART v3.0.8
+# FREQSTART v3.0.9
 
 See what has been changed: <a href="#changelog">Changelog</a>
 
@@ -15,8 +15,6 @@ For `Freqstart` related questions, use die github issue list: [open issues](http
 
 For `Freqtrade` related questions, join the official discord: [discord.gg/g549bRAy](https://discord.gg/g549bRAy)
 
-Best `Crypto` portfolio tracker: [coinstats.app](https://invite.coinstats.app/r?i=pJ7wKJ1635067130440)
-
 ### Features
 
 * `Freqtrade` Guided setup for Docker projects.
@@ -25,7 +23,7 @@ Best `Crypto` portfolio tracker: [coinstats.app](https://invite.coinstats.app/r?
 * `FreqUI` Full setup of FreqUI incl. Nginx proxy and Tailscale (VPN).
 * `Binance Proxy` Setup for Binance proxy incl. reusable config file.
 * `Kucoin Proxy` Setup for Kucoin proxy incl. reusable config file.
-* `Strategies` Automated installation of implemented strategies incl. updates.
+* `Strategies` Automated installation of implemented strategies incl. updates (24h).
 
 ### Strategies
 
@@ -43,7 +41,7 @@ NASOSv5 | Rallipanos, pluxury | -
 NostalgiaForInfinityNext_7_13_0 | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 NostalgiaForInfinityX | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 
-`Help` expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
+Help expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
 
 #### Custom Strategies
 
@@ -70,6 +68,8 @@ HostHatch (NVMe 4GB & 16GB / Tokyo, Hong Kong / Ubuntu LTS): [hosthatch.com](htt
 
 Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://www.vultr.com/?ref=9122650-8H)
 
+Best `Crypto` portfolio tracker: [coinstats.app](https://invite.coinstats.app/r?i=pJ7wKJ1635067130440)
+
 #### Test VPS latency
 
    How to test latency to Binance exchange from your VPS:
@@ -78,22 +78,27 @@ Vultr (Intel High Frequency 2 Core / Tokyo / Ubuntu LTS): [vultr.com](https://ww
    ```
 
 ### Setup `Freqstart`
-   (Oracle Linux)
+
+   Install git package
    ```sh
-   sudo yum install git
+   sudo apt install -y git
    ```
+   
    Clone the repo
    ```sh
    git clone https://github.com/freqstart/freqstart.git
    ```
+   
    Change directory to `freqstart`
    ```sh
    cd ~/freqstart
    ```
+   
    Make `freqstart.sh` executable
    ```sh
    sudo chmod +x freqstart.sh
    ```
+   
    Setup `freqstart`
    ```sh
    ./freqstart.sh --setup
@@ -161,6 +166,9 @@ With Freqstart you are no longer bound to a single docker-compose.yml and can fr
 See the [open issues](https://github.com/freqstart/freqstart/issues) for a full list of proposed features (and known issues).
 
 ### Changelog
+
+`v3.0.9`
+* TBA
 
 `v3.0.8`
 * Fixed setup routine endless loop
