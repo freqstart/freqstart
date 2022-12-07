@@ -678,21 +678,6 @@ _fsSetup_() {
 
 
 _fsSetupPrerequisites_() {  
-  local _pkgs=(
-  "curl"
-  "cron"
-  "jq"
-  "ufw"
-  "openssl"
-  "systemd-container"
-  "uidmap"
-  "dbus-user-session"
-  "docker-compose"
-  )
-  local _pkg=''
-  local _pkgsSetup=()
-  local _pkgSetup=''
-  
   _fsMsgTitle_ "SETUP: PREREQUISITES"
 
   # create the strategy config
@@ -705,30 +690,9 @@ _fsSetupPrerequisites_() {
       break
     fi
   done
-
+  
   # install and validate all required packages
-  while true; do
-    _pkgsSetup=()
-    
-    for _pkg in "${_pkgs[@]}"; do
-      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
-        _pkgsSetup+=("${_pkg}")
-      fi
-    done
-    
-    if (( ${#_pkgsSetup[@]} )); then
-      _fsMsgTitle_ "Update packages..."
-      sudo apt update || true
-      
-      for _pkgSetup in "${_pkgsSetup[@]}"; do
-        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
-        sudo apt install -y -q "${_pkgSetup}"
-      done
-    else
-      _fsMsg_ "All packages installed."
-      break
-    fi
-  done
+  _fsPkgInstall_ "curl" "cron" "jq" "ufw" "openssl" "systemd-container" "uidmap" "dbus-user-session" "docker-compose"
 }
 
 _fsSetupUser_() {
@@ -1424,6 +1388,59 @@ _fsArchitecture_() {
   fi
 }
 
+_fsPkgInstall_() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  
+  local	_pkgs=("${@}")
+  local _pkg=''
+  local _pkgsInstall=()
+  local _pkgInstall=''
+  
+  while true; do
+    _pkgsInstall=()
+    
+    # add package to array if status is not installed
+    for _pkg in "${_pkgs[@]}"; do
+      if [[ "$(_fsPkgStatus_ "${_pkg}")" -eq 1 ]]; then 
+        _pkgsInstall+=("${_pkg}")
+      fi
+    done
+    
+    # update, install and validate necessary packages
+    if (( ${#_pkgsInstall[@]} )); then
+      _fsMsgTitle_ "Update packages..."
+      
+      sudo apt-get update > /dev/null || true
+      
+      for _pkgInstall in "${_pkgsInstall[@]}"; do
+        _fsMsg_ "Installing \"${_pkgInstall}\" package..."
+        sudo apt-get install -y -q "${_pkgInstall}"
+        
+        if [[ "$(_fsPkgStatus_ "${_pkgInstall}")" -eq 0 ]]; then 
+          _fsMsg_ "Package \"${_pkgInstall}\" installed."
+        else
+          _fsMsgError_ "Installing \"${_pkgInstall}\" package!"
+        fi
+      done
+    else
+      _fsMsg_ "All packages are installed."
+      break
+    fi
+  done
+}
+
+_fsPkgStatus_() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  
+  local	_pkg="${1}"
+
+  if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
 _fsStrategy_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
@@ -1523,6 +1540,7 @@ _fsRandomBase64_() {
   local _string=''
   
   _string="$(xxd -l "${_length}" -ps /dev/urandom | xxd -r -ps | base64)"
+  
   echo "${_string}"
 }
 
