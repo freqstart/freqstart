@@ -611,12 +611,7 @@ _fsProjects_() {
       # compose projects
       _fsMsgTitle_ "PROJECTS: COMPOSE"
 
-      if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
-        _fsMsg_ "Custom strategies file active!"
-      fi
-
       for _project in "${_projects[@]}"; do
-            
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
             if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
