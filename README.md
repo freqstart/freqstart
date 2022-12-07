@@ -168,7 +168,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 ### Changelog
 
 `v3.0.9`
-* TBA
+* Moved package installation into separate function
 
 `v3.0.8`
 * Fixed setup routine endless loop
