@@ -85,7 +85,6 @@ _fsDockerVersion_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _dockerImage="${1}"
-  local _dockerVersionLocal=''
   local _dockerVersionHub=''
   local _dockerRepo="${_dockerImage%:*}"
   local _dockerTag="${_dockerImage##*:}"
@@ -95,6 +94,7 @@ _fsDockerVersion_() {
   local _token=''
   local _acceptM="application/vnd.docker.distribution.manifest.v2+json"
   local _acceptML="application/vnd.docker.distribution.manifest.list.v2+json"
+  local _count=0
   
   # docker hub image version
   _dockerUrl="https://registry-1.docker.io/v2/${_dockerRepo}/manifests/${_dockerTag}"
@@ -123,17 +123,31 @@ _fsDockerVersion_() {
     _fsMsgError_ 'Cannot connect to docker hub.'
   fi
   
-  # docker local image version
+  # validate local docker image
+  while true; do
+    if [[ ! "${_dockerVersionHub}" = "$(_fsDockerVersionLocal_ "${_dockerImage}")" ]]; then
+      [[ $_count -gt 0 ]] && _fsMsgError_ "Cannot pull docker image for: ${_dockerImage}"
+
+      docker pull "${_dockerImage}" > /dev/null || true
+      
+      _count=$(($_count + 1))
+    else
+      _fsMsg_ "Latest docker image installed for: ${_dockerImage}"
+      
+      break
+    fi
+  done
+}
+
+_fsDockerVersionLocal_() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+
+  local _dockerImage="${1}"
+
   if [[ -n "$(docker images -q "${_dockerImage}")" ]]; then
-    _dockerVersionLocal="$(docker inspect --format='{{index .RepoDigests 0}}' "${_dockerImage}" \
+    echo "$(docker inspect --format='{{index .RepoDigests 0}}' "${_dockerImage}" \
     | sed 's/.*@//')"
   fi
-
-  if [[ ! "${_dockerVersionHub}" = "${_dockerVersionLocal}" ]]; then
-    docker pull "${_dockerImage}" > /dev/null
-    
-    _fsMsg_ "Latest docker image installed for: ${_dockerImage}"
-  fi  
 }
 
 _fsDockerContainerPs_() {
@@ -194,7 +208,7 @@ _fsDockerRemove_() {
   fi
 }
 
-_fsReset_() {
+_fsDockerReset_() {
   _fsMsgTitle_ "SETUP: RESET"
   
   if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
@@ -213,26 +227,26 @@ _fsProjectImages_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _project="${1}"
-  local _ymlImages=()
-  local _ymlImagesDeduped=()
-  local _ymlImage=''
+  local _images=()
+  local _imagesDeduped=()
+  local _image=''
   
   # credit: https://stackoverflow.com/a/39612060
   while read -r; do
-    _ymlImages+=( "$REPLY" )
+    _images+=( "$REPLY" )
   done < <(grep -vE '^\s+#' "${_project}" \
   | grep 'image:' \
   | sed "s,\s,,g" \
   | sed "s,image:,,g" \
   || true)
   
-  if (( ${#_ymlImages[@]} )); then
+  if (( ${#_images[@]} )); then
     while read -r; do
-      _ymlImagesDeduped+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_ymlImages[@]}")
+      _imagesDeduped+=( "$REPLY" )
+    done < <(_fsArrayDedupe_ "${_images[@]}")
     
-    for _ymlImage in "${_ymlImagesDeduped[@]}"; do
-      _fsDockerVersion_ "${_ymlImage}"
+    for _image in "${_imagesDeduped[@]}"; do
+      _fsDockerVersion_ "${_image}"
     done
   fi
 }
@@ -375,7 +389,6 @@ _fsProjectCompose_() {
   local _containerLogfile=''
   local _containersPs=()
   local _containerPs=''
-
   local _containerInactive=0
   local _compose=1
   local _error=0
@@ -2002,7 +2015,7 @@ FS_ARGS_AUTO=''
 _fsOptions_ "${@}"
 
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
-  _fsReset_
+  _fsDockerReset_
 elif [[ "${FS_OPTS_SETUP}" -eq 0 ]]; then
   _fsSetup_
 elif [[ "$(_fsSymlinkValidate_ "${FS_SYMLINK}")" -eq 0 ]];then
