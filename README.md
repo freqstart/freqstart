@@ -169,6 +169,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 
 `v3.0.9`
 * Moved package installation into separate function
+* Added validation routine for local docker images
 
 `v3.0.8`
 * Fixed setup routine endless loop
