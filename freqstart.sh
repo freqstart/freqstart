@@ -126,13 +126,14 @@ _fsDockerVersion_() {
   # validate local docker image
   while true; do
     if [[ ! "${_dockerVersionHub}" = "$(_fsDockerVersionLocal_ "${_dockerImage}")" ]]; then
-      [[ $_count -gt 0 ]] && _fsMsgError_ "Cannot pull docker image for: ${_dockerImage}"
+      [[ $_count -gt 0 ]] && _fsMsgError_ "Cannot download latest \"${_dockerImage}\" docker image."
+      _fsMsg_ "Downloading latest \"${_dockerImage}\" docker image..."
 
       docker pull "${_dockerImage}" > /dev/null || true
       
       _count=$(($_count + 1))
     else
-      _fsMsg_ "Latest docker image installed for: ${_dockerImage}"
+      _fsMsg_ "Latest \"${_dockerImage}\" docker image installed."
       
       break
     fi
