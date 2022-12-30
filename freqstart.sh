@@ -1325,7 +1325,7 @@ _architecture() {
   kernel="$(_architecture_kernel)"
   machine="$(_architecture_machine)"
   
-  if [[ -z "${kernel}" ]] || [[ -z "${_architectureSupported}" ]]; then
+  if [[ -z "${kernel}" ]] || [[ -z "${machine}" ]]; then
     _fsMsgError_ "Your OS is not supported. Please open an issue: https://github.com/freqstart/freqstart/issues"
   fi
 }
