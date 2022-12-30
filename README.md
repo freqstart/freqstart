@@ -40,6 +40,7 @@ NASOSv4 | Rallipanos, pluxury | -
 NASOSv5 | Rallipanos, pluxury | -
 NostalgiaForInfinityNext_7_13_0 | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 NostalgiaForInfinityX | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
+NostalgiaForInfinityX2 | iterativ | [Link](https://github.com/iterativv/NostalgiaForInfinity)
 
 Help expanding the strategies list and include config files if possible: [freqstart_strategies.json](https://raw.githubusercontent.com/freqstart/freqstart/develop/freqstart_strategies.json)
 
@@ -170,6 +171,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 `v3.0.9`
 * Moved package installation into separate function
 * Added validation routine for local docker images
+* Added "NostalgiaForInfinityX2" strategy
 
 `v3.0.8`
 * Fixed setup routine endless loop
