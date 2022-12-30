@@ -1381,7 +1381,7 @@ _packages() {
   local pkg_install=''
   
   for pkg in "${pkgs[@]}"; do
-    if [[ "$(_package_status "${pkg}")" -eq 1 ]]; then 
+    if [[ "$(_packages_status "${pkg}")" -eq 1 ]]; then 
       pkgs_install+=("${pkg}")
     fi
   done
