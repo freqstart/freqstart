@@ -1326,7 +1326,7 @@ _architecture() {
   machine="$(_architecture_machine)"
   
   if [[ -z "${kernel}" ]] || [[ -z "${_architectureSupported}" ]]; then
-    _fsMsgError_ "Your OS (${_os}/${_architecture}) is not supported."
+    _fsMsgError_ "Your OS is not supported. Please open an issue: https://github.com/freqstart/freqstart/issues"
   fi
 }
 
@@ -1360,71 +1360,15 @@ _architecture_machine() {
     aarch64)
       supported=0
       ;;
+    arm)
+      if dpkg --print-architecture | grep -q 'arm64'; then
+        machine='arm64'
+      fi
+      ;;
   esac
   
   if [[ "${supported}" -eq 0 ]]; then
     echo "${machine}"
-  fi
-}
-
-_fsArchitecture_() {
-  local _os=''
-  local _osCmd=''
-  local _osSupported=1
-  local _architecture=''
-  local _architectureCmd=''
-  local _architectureSupported=1
-  
-  _osCmd="$(uname -s || true)"
-  _architectureCmd="$(uname -m || true)"
-
-  if [[ -n "${_osCmd}" ]]; then
-    case ${_osCmd} in
-      Darwin)
-        _os='osx'
-        ;;
-      Linux)
-        _os='linux'
-        _osSupported=0
-        ;;
-      CYGWIN*|MINGW32*|MSYS*|MINGW*)
-        _os='windows'
-        ;;
-      *)
-        _os='unkown'
-        ;;
-    esac
-  fi
-  
-  if [[ -n "${_architectureCmd}" ]]; then
-    case ${_architectureCmd} in
-      i386|i686)
-        _architecture='386'
-        ;;
-      x86_64)
-        _architecture='amd64'
-        _architectureSupported=0
-        ;;
-      arm)
-        if dpkg --print-architecture | grep -q 'arm64'; then
-          _architecture='arm64'
-        else
-          _architecture='arm'
-        fi
-        ;;
-      aarch64)
-        _architecture='arm64'
-        _architectureSupported=0
-        ;;
-      *)
-        _architecture='unkown'
-    esac
-  fi
-
-  if [[ "${_osSupported}" -eq 1 ]] || [[ "${_architectureSupported}" -eq 1 ]]; then
-    _fsMsgError_ "Your OS (${_os}/${_architecture}) is not supported."
-  else
-    echo "${_architecture}"
   fi
 }
 
