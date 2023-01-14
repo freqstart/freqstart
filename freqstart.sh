@@ -182,11 +182,15 @@ _fsDockerReset_() {
     
     # credit: https://stackoverflow.com/a/69921248
     docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
-    docker network prune --force 2> /dev/null || true
-    docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
+    _fsDockerPrune_
   else
     _fsMsg_ 'Skipping...'
   fi
+}
+
+_fsDockerPrune_() {
+    # remove all unused containers, networks and images
+    docker system prune --all --force > /dev/null || true
 }
 
 _fsProjectImages_() {
@@ -627,8 +631,7 @@ _fsProjects_() {
       fi
     fi
     
-    # remove all unused containers, networks and images
-    docker system prune --all --force > /dev/null || true
+    _fsDockerPrune_
   else
     _fsMsg_ "No projects found."
   fi
