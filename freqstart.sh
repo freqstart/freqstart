@@ -627,8 +627,8 @@ _fsProjects_() {
       fi
     fi
     
-    # clear orphaned networks
-    yes $'y' | docker network prune > /dev/null || true
+    # remove all unused containers, networks and images
+    docker system prune --all --force > /dev/null || true
   else
     _fsMsg_ "No projects found."
   fi
