@@ -106,10 +106,10 @@ _docker_version() {
   | sed 's,\",,g' \
   | sed 's,etag: ,,' \
   || _fsMsgError_ 'Cannot retrieve docker manifest.')"
-
-  docker_version_local="$(docker inspect --format='{{index .RepoDigests 0}}' "${docker_image}" \
-  | sed 's/.*@//' \
-  || true)"
+  
+  if docker inspect --type=image "${docker_image}" > /dev/null; then
+    docker_version_local="$(docker inspect --format='{{index .RepoDigests 0}}' "${docker_image}" | cut -d '@' -f 2)"
+  fi
 
   if [[ ! "${docker_version_hub}" = "${docker_version_local}" ]]; then
     _fsMsg_ "Downloading latest \"${docker_image}\" docker image..."
