@@ -172,6 +172,7 @@ See the [open issues](https://github.com/freqstart/freqstart/issues) for a full 
 * Moved package installation into separate function
 * Added validation routine for local docker images
 * Added "NostalgiaForInfinityX2" strategy
+* Fixed local docker image inspect error
 
 `v3.0.8`
 * Fixed setup routine endless loop
