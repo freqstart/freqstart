@@ -21,7 +21,7 @@ set -o errtrace
 set -o nounset
 set -o pipefail
 
-readonly FS_VERSION='v3.0.8'
+readonly FS_VERSION='v3.0.9'
 
 readonly FS_NAME="freqstart"
 readonly FS_TMP="/tmp/${FS_NAME}"
@@ -49,6 +49,7 @@ readonly FS_NETWORK_GATEWAY='172.35.0.1'
 readonly FS_PROXY_BINANCE="${FS_NAME}_binance"
 readonly FS_PROXY_BINANCE_YML="${FS_DIR}/${FS_PROXY_BINANCE}.yml"
 readonly FS_PROXY_BINANCE_IP='172.35.0.253'
+
 readonly FS_PROXY_KUCOIN="${FS_NAME}_kucoin"
 readonly FS_PROXY_KUCOIN_YML="${FS_DIR}/${FS_PROXY_KUCOIN}.yml"
 readonly FS_PROXY_KUCOIN_IP='172.35.0.252'
@@ -81,120 +82,99 @@ trap '_fsErr_ "${FUNCNAME:-.}" ${LINENO}' ERR
 # DOCKER
 ######################################################################
 
-_fsDockerVersion_() {
+_docker_version() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _dockerImage="${1}"
-  local _dockerVersionLocal=''
-  local _dockerVersionHub=''
-  local _dockerRepo="${_dockerImage%:*}"
-  local _dockerTag="${_dockerImage##*:}"
-  local _dockerUrl=''
-  local _dockerName=''
-  local _dockerManifest=''
-  local _token=''
-  local _acceptM="application/vnd.docker.distribution.manifest.v2+json"
-  local _acceptML="application/vnd.docker.distribution.manifest.list.v2+json"
+  local docker_image="${1}"
+  local docker_repo="${docker_image%:*}"
+  local docker_tag="${docker_image##*:}"
+  local docker_token=''
+  local docker_version_hub=''
+  local docker_version_local=''
   
-  # docker hub image version
-  _dockerUrl="https://registry-1.docker.io/v2/${_dockerRepo}/manifests/${_dockerTag}"
-  _dockerName="${FS_NAME}"'_'"$(echo "${_dockerRepo}" | sed "s,\/,_,g" | sed "s,\-,_,g")"
-  _dockerManifest="${FS_TMP}/${FS_HASH}_${_dockerName}_${_dockerTag}.md"
-  _token="$(curl --connect-timeout 10 -s "https://auth.docker.io/token?scope=repository:${_dockerRepo}:pull&service=registry.docker.io"  | jq -r '.token' || true)"
+  docker_token="$(curl --connect-timeout 10 -s \
+  "https://auth.docker.io/token?scope=repository:${docker_repo}:pull&service=registry.docker.io"  \
+  | jq -r '.token' \
+  || _fsMsgError_ 'Cannot retrieve docker token.')"
 
-  if [[ -n "${_token}" ]]; then
-    curl --connect-timeout 10 -s --header "Accept: ${_acceptM}" --header "Accept: ${_acceptML}" --header "Authorization: Bearer ${_token}" \
-    -o "${_dockerManifest}" -I -s -L "${_dockerUrl}" \
-    || true
-  else
-    _fsMsgError_ 'Cannot retrieve docker token.'
-  fi
+  docker_version_hub="$(curl --connect-timeout 10 -s \
+  --header "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+  --header "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+  --header "Authorization: Bearer ${docker_token}" \
+  -v --silent "https://registry-1.docker.io/v2/${docker_repo}/manifests/${docker_tag}" 2>&1 \
+  | grep -oE 'etag: "(.*)"' \
+  | sed 's,\",,g' \
+  | sed 's,etag: ,,' \
+  || _fsMsgError_ 'Cannot retrieve docker manifest.')"
   
-  if [[ -f "${_dockerManifest}" ]]; then    
-    _dockerVersionHub="$(grep -oE 'etag: "(.*)"' "${_dockerManifest}" \
-    | sed 's,\",,g' \
-    | sed 's,etag: ,,' \
-    || true)"
-    
-    if [[ -z "${_dockerVersionHub}" ]]; then
-      _fsMsgError_ 'Cannot retrieve docker manifest.'
-    fi
-  else
-    _fsMsgError_ 'Cannot connect to docker hub.'
-  fi
-  
-  # docker local image version
-  if [[ -n "$(docker images -q "${_dockerImage}")" ]]; then
-    _dockerVersionLocal="$(docker inspect --format='{{index .RepoDigests 0}}' "${_dockerImage}" \
-    | sed 's/.*@//')"
+  if docker inspect --type=image "${docker_image}" > /dev/null; then
+    docker_version_local="$(docker inspect --format='{{index .RepoDigests 0}}' "${docker_image}" | cut -d '@' -f 2)"
   fi
 
-  if [[ ! "${_dockerVersionHub}" = "${_dockerVersionLocal}" ]]; then
-    docker pull "${_dockerImage}" > /dev/null
+  if [[ ! "${docker_version_hub}" = "${docker_version_local}" ]]; then
+    _fsMsg_ "Downloading latest \"${docker_image}\" docker image..."
     
-    _fsMsg_ "Latest docker image installed for: ${_dockerImage}"
-  fi  
+    docker pull "${docker_image}" > /dev/null \
+    || _fsMsgError_ "Cannot download latest \"${docker_image}\" docker image."
+    
+    _fsMsg_ "Installed latest \"${docker_image}\" docker image."
+  fi
 }
 
-_fsDockerContainerPs_() {
+_docker_ps() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
-  local _dockerName="${1}"
-  local _dockerMode="${2:-}" # optional: all
-  local _dockerPs=''
-  local _dockerPsAll=''
-  local _dockerMatch=1
+  local docker_name="${1}"
+  local docker_mode="${2:-}" # optional: all
+  local docker_ps=''
   
   # credit: https://serverfault.com/a/733498; https://stackoverflow.com/a/44731522
-  if [[ "${_dockerMode}" = "all" ]]; then
-    _dockerPsAll="$(docker ps -a --format '{{.Names}}' | grep -ow "${_dockerName}" || true)"
-    [[ -n "${_dockerPsAll}" ]] && _dockerMatch=0
+  if [[ "${docker_mode}" = "all" ]]; then
+    docker_ps="$(docker ps -a --format '{{.Names}}' | grep -ow "${docker_name}" || true)"
   else
-    _dockerPs="$(docker ps --format '{{.Names}}' | grep -ow "${_dockerName}" || true)"
-    [[ -n "${_dockerPs}" ]] && _dockerMatch=0
+    docker_ps="$(docker ps --format '{{.Names}}' | grep -ow "${docker_name}" || true)"
   fi
-  
-  if [[ "${_dockerMatch}" -eq 0 ]]; then
+
+  if [[ -n "${docker_ps}" ]]; then
     echo 0 # docker container exist
   else
     echo 1 # docker container does not exist
   fi
 }
 
-_fsDockerContainerName_() {
+_docker_name() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _dockerId="${1}"
-  local _dockerName=''
-  
-  _dockerName="$(docker inspect --format="{{.Name}}" "${_dockerId}" | sed "s,\/,,")"
-  
-  if [[ -n "${_dockerName}" ]]; then
-    # return docker container name
-    echo "${_dockerName}"
+
+  local docker_id="${1}"
+  local docker_name=''
+
+  docker_name="$(docker inspect --format="{{.Name}}" "${docker_id}" | sed "s,\/,," || true)"
+
+  if [[ -n "${docker_name}" ]]; then
+    echo "${docker_name}"
   fi
 }
 
-_fsDockerRemove_() {
+_docker_remove() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
-  
-  local _dockerName="${1}"
-  
+
+  local docker_name="${1}"
+
   # stop and remove active and non-active docker container
-  if [[ "$(_fsDockerContainerPs_ "${_dockerName}" "all")" -eq 0 ]]; then
-    docker update --restart=no "${_dockerName}" > /dev/null
-    docker stop "${_dockerName}" > /dev/null
-    docker rm -f "${_dockerName}" > /dev/null
-    
-    if [[ "$(_fsDockerContainerPs_ "${_dockerName}" "all")" -eq 0 ]]; then
-      _fsMsgWarning_ "Cannot remove container: ${_dockerName}"
+  if [[ "$(_docker_ps "${docker_name}" "all")" -eq 0 ]]; then
+    docker update --restart=no "${docker_name}" > /dev/null
+    docker stop "${docker_name}" > /dev/null
+    docker rm -f "${docker_name}" > /dev/null
+
+    if [[ "$(_docker_ps "${docker_name}" "all")" -eq 0 ]]; then
+      _fsMsgWarning_ "Cannot remove container: ${docker_name}"
     else
-      _fsMsg_ "Container removed: ${_dockerName}"
+      _fsMsg_ "Container removed: ${docker_name}"
     fi
   fi
 }
 
-_fsReset_() {
+_fsDockerReset_() {
   _fsMsgTitle_ "SETUP: RESET"
   
   if [[ "$(_fsCaseConfirmation_ "Reset all docker projects and networks?")" -eq 0 ]]; then
@@ -202,37 +182,41 @@ _fsReset_() {
     
     # credit: https://stackoverflow.com/a/69921248
     docker ps -a -q 2> /dev/null | xargs -I {} docker rm -f {} 2> /dev/null || true
-    docker network prune --force 2> /dev/null || true
-    docker image ls -q 2> /dev/null | xargs -I {} docker image rm -f {} 2> /dev/null || true
+    _fsDockerPrune_
   else
     _fsMsg_ 'Skipping...'
   fi
+}
+
+_fsDockerPrune_() {
+    # remove all unused containers, networks and images
+    docker system prune --all --force > /dev/null || true
 }
 
 _fsProjectImages_() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local _project="${1}"
-  local _ymlImages=()
-  local _ymlImagesDeduped=()
-  local _ymlImage=''
+  local _images=()
+  local _imagesDeduped=()
+  local _image=''
   
   # credit: https://stackoverflow.com/a/39612060
   while read -r; do
-    _ymlImages+=( "$REPLY" )
+    _images+=( "$REPLY" )
   done < <(grep -vE '^\s+#' "${_project}" \
   | grep 'image:' \
   | sed "s,\s,,g" \
   | sed "s,image:,,g" \
   || true)
   
-  if (( ${#_ymlImages[@]} )); then
+  if (( ${#_images[@]} )); then
     while read -r; do
-      _ymlImagesDeduped+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_ymlImages[@]}")
+      _imagesDeduped+=( "$REPLY" )
+    done < <(_array_dedupe "${_images[@]}")
     
-    for _ymlImage in "${_ymlImagesDeduped[@]}"; do
-      _fsDockerVersion_ "${_ymlImage}"
+    for _image in "${_imagesDeduped[@]}"; do
+      _docker_version "${_image}"
     done
   fi
 }
@@ -267,7 +251,7 @@ _fsProjectStrategies_() {
   if (( ${#_strategies[@]} )); then
     while read -r; do
       _strategiesDedupe+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_strategies[@]}")
+    done < <(_array_dedupe "${_strategies[@]}")
     
     # validate optional strategy paths in project file
     while read -r; do
@@ -285,7 +269,7 @@ _fsProjectStrategies_() {
     
     while read -r; do
       _dirsDedupe+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_dirs[@]}")
+    done < <(_array_dedupe "${_dirs[@]}")
     
     for _strategyDedupe in "${_strategiesDedupe[@]}"; do
       _fsStrategy_ "${_strategyDedupe}"
@@ -341,7 +325,7 @@ _fsProjectConfigs_() {
   if (( ${#_configs[@]} )); then
     while read -r; do
       _configsDedupe+=( "$REPLY" )
-    done < <(_fsArrayDedupe_ "${_configs[@]}")
+    done < <(_array_dedupe "${_configs[@]}")
     
     for _configDedupe in "${_configsDedupe[@]}"; do
       _path="${FS_DIR}/${_configDedupe}"
@@ -375,7 +359,6 @@ _fsProjectCompose_() {
   local _containerLogfile=''
   local _containersPs=()
   local _containerPs=''
-
   local _containerInactive=0
   local _compose=1
   local _error=0
@@ -410,8 +393,8 @@ _fsProjectCompose_() {
       done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
       for _container in "${_containers[@]}"; do
-        _containerName="$(_fsDockerContainerName_ "${_container}")"
-        _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
+        _containerName="$(_docker_name "${_container}")"
+        _containerActive="$(_docker_ps "${_containerName}")"
         
         # connect container to docker network
         if [[ "${_containerName}" = "${FS_PROXY_BINANCE}" ]]; then
@@ -493,8 +476,8 @@ _fsProjectValidate_() {
   done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
 
   for _container in "${_containers[@]}"; do
-    _containerName="$(_fsDockerContainerName_ "${_container}")"
-    _containerActive="$(_fsDockerContainerPs_ "${_containerName}")"
+    _containerName="$(_docker_name "${_container}")"
+    _containerActive="$(_docker_ps "${_containerName}")"
     
     if [[ "${_containerActive}" -eq 0 ]]; then
       _fsMsg_ 'Container is active: '"${_containerName}"
@@ -515,7 +498,7 @@ _fsProjectValidate_() {
           _containerApiJson="$(echo "${_containerCmd}" | grep -o "${FS_FREQUI_JSON##*/}" || true)"
 
           if [[ -n "${_containerApiJson}" ]]; then
-            if [[ "$(_fsDockerContainerPs_ "${FS_FREQUI}")" -eq 0 ]]; then
+            if [[ "$(_docker_ps "${FS_FREQUI}")" -eq 0 ]]; then
               _fsMsg_ "API url: https://${_cors}/${FS_NAME}/${_containerName}"
             else
               _fsMsgWarning_ "FreqUI is not active!"
@@ -525,7 +508,7 @@ _fsProjectValidate_() {
       fi
     else
       _fsMsgWarning_ 'Container is not active: '"${_containerName}"
-      _fsDockerRemove_ "${_containerName}"
+      _docker_remove "${_containerName}"
       _error=$((_error+1))
     fi
   done
@@ -556,9 +539,9 @@ _fsProjectQuit_() {
   done < <(docker-compose -f "${_project}" -p "${_projectFileName}" ps -q)
   
   for _container in "${_containers[@]}"; do
-    _containerName="$(_fsDockerContainerName_ "${_container}")"
+    _containerName="$(_docker_name "${_container}")"
     
-    if [[ "$(_fsDockerContainerPs_ "${_containerName}")" -eq 0 ]]; then
+    if [[ "$(_docker_ps "${_containerName}")" -eq 0 ]]; then
       _quit=$((_quit+1))
     fi
   done
@@ -570,8 +553,8 @@ _fsProjectQuit_() {
     echo 1
   else
     for _container in "${_containers[@]}"; do
-      _containerName="$(_fsDockerContainerName_ "${_container}")"
-      _fsDockerRemove_ "${_containerName}"
+      _containerName="$(_docker_name "${_container}")"
+      _docker_remove "${_containerName}"
     done
     
     echo 0
@@ -611,12 +594,7 @@ _fsProjects_() {
       # compose projects
       _fsMsgTitle_ "PROJECTS: COMPOSE"
 
-      if [[ -f "${FS_STRATEGIES_CUSTOM_PATH}" ]]; then
-        _fsMsg_ "Custom strategies file active!"
-      fi
-
       for _project in "${_projects[@]}"; do
-            
         if (( ${#_projectsFilter[@]} )); then
           if [[ "$(_fsArrayIn_ "${_project##*/}" "${_projectsFilter[@]}")" -eq 0 ]]; then
             if [[ "$(_fsProjectCompose_ "${_project}")" -eq 0 ]]; then
@@ -653,8 +631,7 @@ _fsProjects_() {
       fi
     fi
     
-    # clear orphaned networks
-    yes $'y' | docker network prune > /dev/null || true
+    _fsDockerPrune_
   else
     _fsMsg_ "No projects found."
   fi
@@ -678,21 +655,6 @@ _fsSetup_() {
 
 
 _fsSetupPrerequisites_() {  
-  local _pkgs=(
-  "curl"
-  "cron"
-  "jq"
-  "ufw"
-  "openssl"
-  "systemd-container"
-  "uidmap"
-  "dbus-user-session"
-  "docker-compose"
-  )
-  local _pkg=''
-  local _pkgsSetup=()
-  local _pkgSetup=''
-  
   _fsMsgTitle_ "SETUP: PREREQUISITES"
 
   # create the strategy config
@@ -705,30 +667,9 @@ _fsSetupPrerequisites_() {
       break
     fi
   done
-
+  
   # install and validate all required packages
-  while true; do
-    _pkgsSetup=()
-    
-    for _pkg in "${_pkgs[@]}"; do
-      if ! dpkg-query -W --showformat='${Status}\n' "${_pkg}" 2> /dev/null | grep -q "install ok installed"; then
-        _pkgsSetup+=("${_pkg}")
-      fi
-    done
-    
-    if (( ${#_pkgsSetup[@]} )); then
-      _fsMsgTitle_ "Update packages..."
-      sudo apt update || true
-      
-      for _pkgSetup in "${_pkgsSetup[@]}"; do
-        _fsMsgTitle_ "Installing \"${_pkgSetup}\" package..."
-        sudo apt install -y -q "${_pkgSetup}"
-      done
-    else
-      _fsMsg_ "All packages installed."
-      break
-    fi
-  done
+  _packages "curl" "cron" "jq" "ufw" "openssl" "systemd-container" "uidmap" "dbus-user-session" "docker-compose"
 }
 
 _fsSetupUser_() {
@@ -914,7 +855,7 @@ _fsSetupProxyBinance_() {
   _fsMsgTitle_ "SETUP: BINANCE PROXY"
   
   while true; do
-    if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_BINANCE}")" -eq 1 ]]; then
+    if [[ "$(_docker_ps "${FS_PROXY_BINANCE}")" -eq 1 ]]; then
       if [[ "$(_fsCaseConfirmation_ "Install proxy for: Binance")" -eq 0 ]]; then
         # binance proxy json file; note: sudo because of freqtrade docker user
         _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_BINANCE}.json" \
@@ -982,11 +923,22 @@ _fsSetupProxyBinance_() {
 
 _fsSetupProxyKucoin_() {
   # KUCOIN-PROXY; credit: https://github.com/mikekonan/exchange-proxy
+  
+  local image=''
+  local machine=''
+  
+  machine="$(_architecture_machine)"
+ 
+  case ${machine} in
+    x86_64)
+      image='amd64'
+    ;;
+  esac
 
   _fsMsgTitle_ "SETUP: KUCOIN PROXY"
   
   while true; do
-    if [[ "$(_fsDockerContainerPs_ "${FS_PROXY_KUCOIN}")" -eq 1 ]]; then
+    if [[ "$(_docker_ps "${FS_PROXY_KUCOIN}")" -eq 1 ]]; then
       if [[ "$(_fsCaseConfirmation_ "Install proxy for: Kucoin")" -eq 0 ]]; then
         # kucoin proxy json file; note: sudo because of freqtrade docker user
         _fsFileCreate_ "${FS_DIR_USER_DATA}/${FS_PROXY_KUCOIN}.json" \
@@ -1016,7 +968,7 @@ _fsSetupProxyKucoin_() {
         "version: '3'" \
         "services:" \
         "  ${FS_PROXY_KUCOIN}:" \
-        "    image: mikekonan/exchange-proxy:latest-${FS_ARCHITECTURE}" \
+        "    image: mikekonan/exchange-proxy:latest-${image}" \
         "    container_name: ${FS_PROXY_KUCOIN}" \
         "    command: >" \
         "      -port 8980" \
@@ -1101,15 +1053,21 @@ _fsSetupFrequi_() {
   local _sslParam="${FS_NGINX_DIR}/dhparam.pem"
   local _sslConf="${FS_NGINX_DIR}/self-signed.conf"
   local _sslConfParam="${FS_NGINX_DIR}/ssl-params.conf"
-  local _architecture=""
+  local image=''
+  local machine=''
   
   _fsMsgTitle_ "SETUP: FREQUI"
 
-  if [[ "${FS_ARCHITECTURE}" = "arm64" ]]; then
-    _architecture="arm64v8"
-  else
-    _architecture="${FS_ARCHITECTURE}"
-  fi
+  machine="$(_architecture_machine)"
+ 
+  case ${machine} in
+    x86_64)
+      image='amd64'
+    ;;
+    aarch64)
+      image='arm64v8'
+    ;;
+  esac
     
   while true; do
     if [[ -z "${_tailscaleIp}" ]]; then
@@ -1117,7 +1075,7 @@ _fsSetupFrequi_() {
       break
     fi
     
-    if [[ "$(_fsDockerContainerPs_ "${FS_FREQUI}")" -eq 1 ]] || [[ "$(_fsDockerContainerPs_ "${FS_NGINX}")" -eq 1 ]]; then
+    if [[ "$(_docker_ps "${FS_FREQUI}")" -eq 1 ]] || [[ "$(_docker_ps "${FS_NGINX}")" -eq 1 ]]; then
       if [[ "$(_fsCaseConfirmation_ "Install FreqUI now?")" -eq 1 ]]; then
         _fsMsg_ "Skipping..."
         break
@@ -1305,7 +1263,7 @@ _fsSetupFrequi_() {
     "services:" \
     "  ${FS_NGINX}:" \
     "    container_name: ${FS_NGINX}" \
-    "    image: ${_architecture}/nginx:stable" \
+    "    image: ${image}/nginx:stable" \
     "    ports:" \
     "      - \"${_tailscaleIp}:80:80\"" \
     "      - \"${_tailscaleIp}:443:443\"" \
@@ -1363,64 +1321,100 @@ _fsLogo_() {
   "" >&2
 }
 
-_fsArchitecture_() {
-  local _os=''
-  local _osCmd=''
-  local _osSupported=1
-  local _architecture=''
-  local _architectureCmd=''
-  local _architectureSupported=1
+_architecture() {
+  local kernel=''
+  local machine=''
   
-  _osCmd="$(uname -s || true)"
-  _architectureCmd="$(uname -m || true)"
-
-  if [[ -n "${_osCmd}" ]]; then
-    case ${_osCmd} in
-      Darwin)
-        _os='osx'
-        ;;
-      Linux)
-        _os='linux'
-        _osSupported=0
-        ;;
-      CYGWIN*|MINGW32*|MSYS*|MINGW*)
-        _os='windows'
-        ;;
-      *)
-        _os='unkown'
-        ;;
-    esac
-  fi
+  kernel="$(_architecture_kernel)"
+  machine="$(_architecture_machine)"
   
-  if [[ -n "${_architectureCmd}" ]]; then
-    case ${_architectureCmd} in
-      i386|i686)
-        _architecture='386'
-        ;;
-      x86_64)
-        _architecture='amd64'
-        _architectureSupported=0
-        ;;
-      arm)
-        if dpkg --print-architecture | grep -q 'arm64'; then
-          _architecture='arm64'
-        else
-          _architecture='arm'
-        fi
-        ;;
-      aarch64)
-        _architecture='arm64'
-        _architectureSupported=0
-        ;;
-      *)
-        _architecture='unkown'
-    esac
+  if [[ -z "${kernel}" ]] || [[ -z "${machine}" ]]; then
+    _fsMsgError_ "Your OS is not supported. Please open an issue: https://github.com/freqstart/freqstart/issues"
   fi
+}
 
-  if [[ "${_osSupported}" -eq 1 ]] || [[ "${_architectureSupported}" -eq 1 ]]; then
-    _fsMsgError_ "Your OS (${_os}/${_architecture}) is not supported."
+_architecture_kernel() {
+  local kernel=''
+  local supported=1
+
+  kernel="$(uname -s || true)"
+  
+  case ${kernel} in
+    Linux)
+      supported=0
+      ;;
+  esac
+  
+  if [[ "${supported}" -eq 0 ]]; then
+    echo "${kernel}"
+  fi
+}
+
+_architecture_machine() {
+  local machine=''
+  local supported=1
+
+  machine="$(uname -m || true)"
+  
+  case ${machine} in
+    x86_64)
+      supported=0
+      ;;
+    aarch64)
+      supported=0
+      ;;
+    arm)
+      if dpkg --print-architecture | grep -q 'arm64'; then
+        machine='arm64'
+      fi
+      ;;
+  esac
+  
+  if [[ "${supported}" -eq 0 ]]; then
+    echo "${machine}"
+  fi
+}
+
+_packages() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+
+  local	pkgs=("${@}")
+  local pkg=''
+  local pkgs_install=()
+  local pkg_install=''
+  
+  for pkg in "${pkgs[@]}"; do
+    if [[ "$(_packages_status "${pkg}")" -eq 1 ]]; then 
+      pkgs_install+=("${pkg}")
+    fi
+  done
+  
+  if (( ${#pkgs_install[@]} )); then
+    sudo apt-get update || true
+    
+    for pkg_install in "${pkgs_install[@]}"; do
+      sudo apt-get install -y -q "${pkg_install}"
+    done
+  fi
+}
+
+_packages_install() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  
+  local	pkg="${1}"
+  
+  sudo apt-get install -y -q "${pkg}"
+}
+
+_packages_status() {
+  [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
+  
+  local	pkg="${1}"
+  
+  if dpkg -s "${pkg}" &> /dev/null; then
+      echo 0
   else
-    echo "${_architecture}"
+      echo 1
   fi
 }
 
@@ -1448,7 +1442,7 @@ _fsStrategy_() {
     if (( ${#_urls[@]} )); then
       while read -r; do
       _urlsDedupe+=( "$REPLY" )
-      done < <(_fsArrayDedupe_ "${_urls[@]}")
+      done < <(_array_dedupe "${_urls[@]}")
     fi
     
     if (( ${#_urlsDedupe[@]} )); then
@@ -1523,6 +1517,7 @@ _fsRandomBase64_() {
   local _string=''
   
   _string="$(xxd -l "${_length}" -ps /dev/urandom | xxd -r -ps | base64)"
+  
   echo "${_string}"
 }
 
@@ -1719,7 +1714,7 @@ _fsSymlinkValidate_() {
   fi
 }
 
-_fsArrayDedupe_() {
+_array_dedupe() {
   [[ $# -lt 1 ]] && _fsMsgError_ "Missing required argument to ${FUNCNAME[0]}"
   
   local -a _array=()
@@ -1820,7 +1815,7 @@ _fsCrontabModify_() {
       
       while read -r; do
         _argsDedupe+=( "$REPLY" )
-      done < <(_fsArrayDedupe_ "${_args[@]}")
+      done < <(_array_dedupe "${_args[@]}")
       
       _crontabArgs="${_argsDedupe[*]}"
     elif [[ "${_mode}" = "a" ]]; then # abbreviate current crontab
@@ -1983,13 +1978,13 @@ FS_OPTS_QUIT=1
 FS_OPTS_RESET=1
 FS_OPTS_SETUP=1
 
-FS_ARCHITECTURE="$(_fsArchitecture_)"
 FS_ARGS_AUTO=''
 
+_architecture
 _fsOptions_ "${@}"
 
 if [[ "${FS_OPTS_RESET}" -eq 0 ]]; then
-  _fsReset_
+  _fsDockerReset_
 elif [[ "${FS_OPTS_SETUP}" -eq 0 ]]; then
   _fsSetup_
 elif [[ "$(_fsSymlinkValidate_ "${FS_SYMLINK}")" -eq 0 ]];then
